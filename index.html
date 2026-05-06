@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>GraphEngine</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',sans-serif; background:#12151e; color:#e0e0e0; height:100vh; display:flex; flex-direction:column; overflow:hidden; user-select:none; }
+
+/* TOOLBAR */
+#toolbar {
+  display:flex; align-items:center; gap:6px; padding:7px 12px;
+  background:#1a1f2e; border-bottom:1px solid #2a3050; flex-shrink:0; flex-wrap:wrap;
+}
+.logo { font-weight:700; font-size:15px; color:#64b5f6; margin-right:6px; letter-spacing:.5px; }
+.tool-group { display:flex; gap:3px; }
+.sep { width:1px; background:#2a3050; margin:0 6px; align-self:stretch; }
+
+button {
+  padding:5px 11px; border:1px solid #2a3050; background:#1e2438;
+  color:#c8d0e0; border-radius:5px; cursor:pointer; font-size:12px; transition:all .12s;
+  white-space:nowrap;
+}
+button:hover { background:#2a3550; border-color:#4a6090; }
+button.active { background:#1a3a6a; border-color:#4a90d9; color:#90c8ff; }
+button.play-btn { background:#1a4a2a; border-color:#27ae60; color:#7ddd9a; }
+button.play-btn.active { background:#4a1a1a; border-color:#e74c3c; color:#ff9090; }
+button:disabled { opacity:.4; cursor:not-allowed; }
+
+#mode-label { font-size:11px; color:#6a7a9a; margin-left:auto; }
+
+/* MAIN AREA */
+#main { display:flex; flex:1; overflow:hidden; }
+
+#canvas-wrap { flex:1; position:relative; overflow:hidden; }
+canvas { display:block; }
+
+/* SIDE PANEL */
+#panel {
+  width:255px; background:#1a1f2e; border-left:1px solid #2a3050;
+  padding:10px; overflow-y:auto; flex-shrink:0; display:flex; flex-direction:column; gap:8px;
+}
+.card { background:#12151e; border:1px solid #2a3050; border-radius:7px; padding:10px; }
+.card h3 { font-size:10px; text-transform:uppercase; letter-spacing:.8px; color:#5a6a8a; margin-bottom:8px; }
+.field { margin-bottom:7px; }
+.field label { display:block; font-size:11px; color:#6a7a9a; margin-bottom:3px; }
+.field input, .field select {
+  width:100%; padding:5px 8px; background:#1e2438; border:1px solid #2a3050;
+  color:#e0e0e0; border-radius:4px; font-size:12px; outline:none;
+}
+.field input:focus, .field select:focus { border-color:#4a90d9; }
+
+.result-box {
+  background:#1e2438; border-radius:5px; padding:8px 10px;
+  font-size:12px; min-height:70px; line-height:1.5;
+}
+.result-box .ok { color:#27ae60; }
+.result-box .fail { color:#e74c3c; }
+.result-box .info { color:#7a8aaa; font-size:11px; display:block; }
+
+.btn-full { width:100%; margin-top:2px; }
+.graph-stat { display:flex; justify-content:space-between; font-size:12px; color:#7a8aaa; padding:2px 0; }
+.graph-stat span { color:#b0c0e0; }
+
+#blocked-list .bnode { display:flex; align-items:center; justify-content:space-between; font-size:12px; color:#e0a0a0; padding:2px 0; }
+#blocked-list .bnode .unblock { font-size:10px; cursor:pointer; color:#6a7a9a; }
+#blocked-list .bnode .unblock:hover { color:#e74c3c; }
+#blocked-empty { color:#5a6a8a; font-size:12px; }
+
+/* EDGE POPUP */
+#edge-popup {
+  display:none; position:fixed; background:#1a1f2e; border:1px solid #4a90d9;
+  border-radius:8px; padding:14px; z-index:9999; box-shadow:0 6px 30px rgba(0,0,0,.6);
+  min-width:210px;
+}
+#edge-popup h4 { font-size:13px; color:#90c8ff; margin-bottom:10px; }
+#edge-popup .field label { color:#7a8aaa; }
+#edge-popup button { display:block; width:100%; text-align:left; margin-bottom:4px; }
+#edge-popup .cancel-btn { background:#2a1a1a; border-color:#5a2a2a; color:#cc8888; margin-top:4px; }
+
+/* STATUS BAR */
+#status { padding:3px 12px; background:#141720; font-size:11px; color:#5a6a8a; flex-shrink:0; border-top:1px solid #2a3050; }
+
+/* TOOLTIPS */
+[title] { cursor:help; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:#12151e; }
+::-webkit-scrollbar-thumb { background:#2a3050; border-radius:3px; }
+
+/* context menu */
+#ctx-menu {
+  display:none; position:fixed; background:#1a1f2e; border:1px solid #2a3050;
+  border-radius:6px; z-index:9998; padding:4px 0; min-width:150px;
+  box-shadow:0 4px 20px rgba(0,0,0,.5);
+}
+#ctx-menu div { padding:7px 14px; font-size:12px; cursor:pointer; }
+#ctx-menu div:hover { background:#2a3550; color:#90c8ff; }
+#ctx-menu .danger:hover { background:#4a1a1a; color:#ff8080; }
+#ctx-menu hr { border:none; border-top:1px solid #2a3050; margin:3px 0; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="logo">⬡ GraphEngine</span>
+  <div class="tool-group">
+    <button id="btn-sel"  onclick="setMode('select')"   title="Selecionar / Mover nós (S)">↖ Selecionar</button>
+    <button id="btn-node" onclick="setMode('add_node')" title="Adicionar nó (N)">＋ Nó</button>
+    <button id="btn-edge" onclick="setMode('add_edge')" title="Conectar nós (E)">→ Aresta</button>
+    <button id="btn-del"  onclick="setMode('delete')"   title="Deletar elemento (Del)">✕ Deletar</button>
+  </div>
+  <div class="sep"></div>
+  <button id="btn-play" class="play-btn" onclick="togglePlay()" title="Modo teste — bloqueie nós e verifique caminhos">▶ Play</button>
+  <div class="sep"></div>
+  <div class="tool-group">
+    <button onclick="newGraph()"  title="Limpar grafo">⊠ Novo</button>
+    <button onclick="document.getElementById('fi').click()" title="Importar JSON">⤴ Carregar</button>
+    <button onclick="exportGraph()" title="Exportar JSON">⤵ Exportar</button>
+  </div>
+  <input type="file" id="fi" accept=".json" style="display:none" onchange="importGraph(event)">
+  <span id="mode-label">Selecionar</span>
+</div>
+
+<div id="main">
+  <div id="canvas-wrap">
+    <canvas id="cv"></canvas>
+  </div>
+
+  <div id="panel">
+    <!-- PROPERTIES -->
+    <div class="card" id="props-card">
+      <h3>Propriedades</h3>
+      <div id="props-body" style="color:#5a6a8a;font-size:12px;">Selecione um elemento</div>
+    </div>
+
+    <!-- PATHFINDING -->
+    <div class="card">
+      <h3>Encontrar Caminho</h3>
+      <div class="field">
+        <label>Origem</label>
+        <select id="pf-from"><option value="">-- selecione --</option></select>
+      </div>
+      <div class="field">
+        <label>Destino</label>
+        <select id="pf-to"><option value="">-- selecione --</option></select>
+      </div>
+      <div class="field">
+        <label>Algoritmo</label>
+        <select id="pf-algo">
+          <option value="dijkstra">Dijkstra (custo mínimo)</option>
+          <option value="bfs">BFS (menos saltos)</option>
+        </select>
+      </div>
+      <button class="btn-full" onclick="findPath()">🔍 Buscar Caminho</button>
+      <div class="result-box" id="pf-result" style="margin-top:8px;">
+        <span class="info">Nenhuma busca realizada.</span>
+      </div>
+    </div>
+
+    <!-- GRAPH INFO -->
+    <div class="card">
+      <h3>Informações</h3>
+      <div id="graph-info">
+        <div class="graph-stat">Nós <span id="gi-nodes">0</span></div>
+        <div class="graph-stat">Arestas <span id="gi-edges">0</span></div>
+        <div class="graph-stat">Bloqueados <span id="gi-blocked">0</span></div>
+      </div>
+    </div>
+
+    <!-- PLAY PANEL -->
+    <div class="card" id="play-card" style="display:none;">
+      <h3>Modo Teste</h3>
+      <p style="font-size:11px;color:#6a7a9a;margin-bottom:8px;">Clique nos nós no canvas para bloqueá-los. Nós bloqueados são ignorados no pathfinding.</p>
+      <div id="blocked-list"><span id="blocked-empty" style="color:#5a6a8a;font-size:12px;">Nenhum nó bloqueado.</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="status">Pronto — grafo salvo automaticamente no cache local.</div>
+
+<!-- EDGE POPUP -->
+<div id="edge-popup">
+  <h4 id="ep-title">Criar Aresta</h4>
+  <div class="field">
+    <label>Custo</label>
+    <input type="number" id="ep-cost" value="1" min="0.01" step="0.1">
+  </div>
+  <button id="ep-ab">→ A → B</button>
+  <button id="ep-ba">← B → A</button>
+  <button id="ep-both">↔ Bidirecional</button>
+  <button class="cancel-btn" onclick="closeEdgePopup()">Cancelar</button>
+</div>
+
+<!-- CONTEXT MENU -->
+<div id="ctx-menu">
+  <div id="cm-label" style="color:#6a7a9a; font-size:11px; padding:5px 14px 2px;"></div>
+  <hr>
+  <div id="cm-rename">✏ Renomear</div>
+  <div id="cm-block">⊘ Bloquear / Desbloquear</div>
+  <div id="cm-del" class="danger">✕ Deletar</div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA MODEL
+// ─────────────────────────────────────────────────────────────────────────────
+const G = { nodes:[], edges:[], nextNode:1, nextEdge:1, labelIdx:0 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let mode = 'select';
+let playMode = false;
+let selected = null;    // {type:'node'|'edge', id}
+let edgeSrc = null;     // node id while placing edge
+let dragId = null;
+let dragOx = 0, dragOy = 0;
+let pathHL = null;      // {nodes:Set, edges:Set}
+let pendFrom = null, pendTo = null;  // edge popup
+
+// Canvas pan
+let panX = 0, panY = 0;
+let panning = false, panSx = 0, panSy = 0;
+
+// Hover
+let hovNode = null, hovEdge = null;
+
+// Mouse world pos for edge-in-progress line
+let mwx = 0, mwy = 0;
+
+const NR = 28; // node radius
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANVAS SETUP
+// ─────────────────────────────────────────────────────────────────────────────
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+function resize() {
+  const w = document.getElementById('canvas-wrap');
+  cv.width  = w.clientWidth;
+  cv.height = w.clientHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LABEL GENERATOR
+// ─────────────────────────────────────────────────────────────────────────────
+function genLabel() {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let n = G.labelIdx++;
+  let s = '';
+  do { s = A[n % 26] + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GRAPH OPS
+// ─────────────────────────────────────────────────────────────────────────────
+function gNode(id) { return G.nodes.find(n => n.id === id); }
+function gEdge(id) { return G.edges.find(e => e.id === id); }
+
+function addNode(wx, wy) {
+  const n = { id: 'n' + G.nextNode++, x: wx, y: wy, label: genLabel(), blocked: false };
+  G.nodes.push(n);
+  refreshSelects(); updateGraphInfo(); autoSave();
+  setStatus(`Nó "${n.label}" adicionado.`);
+  return n;
+}
+
+function deleteNode(id) {
+  G.nodes = G.nodes.filter(n => n.id !== id);
+  G.edges = G.edges.filter(e => e.from !== id && e.to !== id);
+  if (selected && selected.id === id) selected = null;
+  if (pathHL) pathHL = null;
+  refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
+  setStatus('Nó deletado.');
+}
+
+function addEdge(from, to, cost) {
+  // Avoid exact duplicate
+  if (G.edges.some(e => e.from === from && e.to === to)) {
+    setStatus('Aresta já existe nessa direção.');
+    return;
+  }
+  const e = { id: 'e' + G.nextEdge++, from, to, cost: cost || 1 };
+  G.edges.push(e);
+  updateGraphInfo(); autoSave();
+  setStatus(`Aresta ${gNode(from)?.label} → ${gNode(to)?.label} criada (custo ${e.cost}).`);
+}
+
+function deleteEdge(id) {
+  G.edges = G.edges.filter(e => e.id !== id);
+  if (selected && selected.id === id) selected = null;
+  if (pathHL) pathHL = null;
+  updatePropsPanel(); updateGraphInfo(); autoSave();
+  setStatus('Aresta deletada.');
+}
+
+function newGraph() {
+  if (G.nodes.length > 0 && !confirm('Criar novo grafo? O atual será perdido.')) return;
+  G.nodes = []; G.edges = []; G.nextNode = 1; G.nextEdge = 1; G.labelIdx = 0;
+  selected = null; edgeSrc = null; pathHL = null;
+  panX = 0; panY = 0;
+  refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
+  setStatus('Novo grafo criado.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODE
+// ─────────────────────────────────────────────────────────────────────────────
+const modeButtons = {
+  select:'btn-sel', add_node:'btn-node', add_edge:'btn-edge', delete:'btn-del'
+};
+const modeLabels = {
+  select:'Selecionar', add_node:'Adicionar Nó', add_edge:'Adicionar Aresta', delete:'Deletar'
+};
+
+function setMode(m) {
+  if (playMode && m !== 'select') return; // only select in play mode
+  mode = m;
+  edgeSrc = null;
+  for (const [k, bid] of Object.entries(modeButtons)) {
+    document.getElementById(bid).classList.toggle('active', k === m);
+  }
+  document.getElementById('mode-label').textContent = playMode ? '▶ PLAY — ' + modeLabels[m] : modeLabels[m];
+  cv.style.cursor = m === 'add_node' ? 'crosshair' : m === 'delete' ? 'not-allowed' : 'default';
+}
+
+function togglePlay() {
+  playMode = !playMode;
+  const btn = document.getElementById('btn-play');
+  btn.classList.toggle('active', playMode);
+  btn.textContent = playMode ? '⏹ Stop' : '▶ Play';
+  document.getElementById('play-card').style.display = playMode ? '' : 'none';
+  if (playMode) { setMode('select'); } else {
+    G.nodes.forEach(n => n.blocked = false);
+    pathHL = null;
+    setMode('select');
+  }
+  updatePlayPanel(); updateGraphInfo();
+  setStatus(playMode ? 'Modo teste ativo — clique nos nós para bloqueá-los.' : 'Modo edição.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIT TESTING
+// ─────────────────────────────────────────────────────────────────────────────
+function c2w(cx, cy) { return { x: cx - panX, y: cy - panY }; }
+
+function nodeAt(cx, cy) {
+  const {x,y} = c2w(cx, cy);
+  for (let i = G.nodes.length-1; i >= 0; i--) {
+    const n = G.nodes[i];
+    if ((n.x-x)**2 + (n.y-y)**2 <= NR*NR) return n;
+  }
+  return null;
+}
+
+function edgeAt(cx, cy) {
+  const {x,y} = c2w(cx, cy);
+  for (const e of G.edges) {
+    if (nearEdge(e, x, y)) return e;
+  }
+  return null;
+}
+
+function nearEdge(e, wx, wy) {
+  const f = gNode(e.from), t = gNode(e.to);
+  if (!f || !t) return false;
+  if (f.id === t.id) {
+    // self-loop: near the loop circle
+    const lx = f.x + NR*0.7, ly = f.y - NR*0.7;
+    const d = Math.abs(Math.sqrt((wx-lx)**2+(wy-ly)**2) - 22);
+    return d < 8;
+  }
+  const rev = G.edges.some(e2 => e2.from === e.to && e2.to === e.from);
+  if (rev) {
+    const midX = (f.x+t.x)/2, midY = (f.y+t.y)/2;
+    return (wx-midX)**2+(wy-midY)**2 < 400;
+  }
+  return distSeg(wx, wy, f.x, f.y, t.x, t.y) < 10;
+}
+
+function distSeg(px,py,ax,ay,bx,by) {
+  const dx=bx-ax, dy=by-ay, len2=dx*dx+dy*dy;
+  if (!len2) return Math.hypot(px-ax,py-ay);
+  const t = Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/len2));
+  return Math.hypot(px-ax-t*dx, py-ay-t*dy);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOUSE EVENTS
+// ─────────────────────────────────────────────────────────────────────────────
+cv.addEventListener('mousedown', e => {
+  closeCtxMenu();
+  const pos = cvPos(e);
+
+  // Middle-click or space+drag = pan
+  if (e.button === 1 || (e.button === 0 && mode === 'select' && !nodeAt(pos.x, pos.y) && !edgeAt(pos.x, pos.y))) {
+    if (e.button === 1 || (!nodeAt(pos.x, pos.y) && !edgeAt(pos.x,pos.y))) {
+      panning = true;
+      panSx = e.clientX - panX; panSy = e.clientY - panY;
+      cv.style.cursor = 'grabbing';
+      return;
+    }
+  }
+  if (e.button !== 0) return;
+
+  const hn = nodeAt(pos.x, pos.y);
+  const he = hn ? null : edgeAt(pos.x, pos.y);
+
+  if (mode === 'select') {
+    if (hn) {
+      selected = { type:'node', id:hn.id };
+      dragId = hn.id;
+      const {x,y} = c2w(pos.x, pos.y);
+      dragOx = x - hn.x; dragOy = y - hn.y;
+      updatePropsPanel();
+    } else if (he) {
+      selected = { type:'edge', id:he.id };
+      updatePropsPanel();
+    } else {
+      selected = null; updatePropsPanel();
+      panning = true;
+      panSx = e.clientX - panX; panSy = e.clientY - panY;
+      cv.style.cursor = 'grabbing';
+    }
+  } else if (mode === 'add_node') {
+    const {x,y} = c2w(pos.x, pos.y);
+    addNode(x, y);
+  } else if (mode === 'add_edge') {
+    if (hn) {
+      if (edgeSrc === null) {
+        edgeSrc = hn.id;
+        setStatus(`Origem: ${hn.label} — clique no nó de destino.`);
+      } else {
+        openEdgePopup(edgeSrc, hn.id, e.clientX, e.clientY);
+        e.stopPropagation(); // prevent doc listener from immediately closing popup
+      }
+    }
+  } else if (mode === 'delete') {
+    if (hn) deleteNode(hn.id);
+    else if (he) deleteEdge(he.id);
+  } else if (mode === 'select' && playMode) {
+    // handled below
+  }
+
+  if (playMode && mode === 'select' && hn) {
+    hn.blocked = !hn.blocked;
+    if (pathHL) findPath();
+    updatePlayPanel(); updateGraphInfo(); autoSave();
+    setStatus(`Nó "${hn.label}" ${hn.blocked ? 'bloqueado' : 'desbloqueado'}.`);
+  }
+});
+
+cv.addEventListener('mousemove', e => {
+  const pos = cvPos(e);
+  const w = c2w(pos.x, pos.y);
+  mwx = w.x; mwy = w.y;
+
+  if (panning) {
+    panX = e.clientX - panSx; panY = e.clientY - panSy;
+    return;
+  }
+  if (dragId && mode === 'select') {
+    const n = gNode(dragId);
+    if (n) { n.x = w.x - dragOx; n.y = w.y - dragOy; }
+    return;
+  }
+  hovNode = nodeAt(pos.x, pos.y)?.id ?? null;
+  hovEdge = hovNode ? null : edgeAt(pos.x, pos.y)?.id ?? null;
+
+  if (!panning) {
+    if (mode === 'select' || mode === 'play') cv.style.cursor = hovNode ? 'grab' : 'default';
+    else if (mode === 'add_node') cv.style.cursor = 'crosshair';
+    else if (mode === 'add_edge') cv.style.cursor = hovNode ? 'pointer' : 'crosshair';
+    else if (mode === 'delete') cv.style.cursor = (hovNode || hovEdge) ? 'not-allowed' : 'default';
+  }
+});
+
+cv.addEventListener('mouseup', e => {
+  if (dragId) { autoSave(); dragId = null; }
+  if (panning) { panning = false; autoSave(); cv.style.cursor = 'default'; }
+});
+
+cv.addEventListener('dblclick', e => {
+  const pos = cvPos(e);
+  const hn = nodeAt(pos.x, pos.y);
+  if (hn) { renameNode(hn); return; }
+  const he = edgeAt(pos.x, pos.y);
+  if (he) { editEdgeCost(he); }
+});
+
+cv.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const pos = cvPos(e);
+  const hn = nodeAt(pos.x, pos.y);
+  const he = hn ? null : edgeAt(pos.x, pos.y);
+  if (hn) showCtxNode(hn, e.clientX, e.clientY);
+  else if (he) showCtxEdge(he, e.clientX, e.clientY);
+});
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  panX -= e.deltaX * 0.4;
+  panY -= e.deltaY * 0.4;
+}, {passive:false});
+
+function cvPos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 's' || e.key === 'S') setMode('select');
+  if (e.key === 'n' || e.key === 'N') setMode('add_node');
+  if (e.key === 'e' || e.key === 'E') setMode('add_edge');
+  if (e.key === 'd' || e.key === 'D') setMode('delete');
+  if (e.key === 'p' || e.key === 'P') togglePlay();
+  if (e.key === 'Escape') { edgeSrc = null; setMode('select'); closeEdgePopup(); closeCtxMenu(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+    if (selected.type === 'node') deleteNode(selected.id);
+    else if (selected.type === 'edge') deleteEdge(selected.id);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTEXT MENU
+// ─────────────────────────────────────────────────────────────────────────────
+let ctxTarget = null;
+
+function showCtxNode(n, x, y) {
+  ctxTarget = { type:'node', obj:n };
+  document.getElementById('cm-label').textContent = 'Nó: ' + n.label;
+  document.getElementById('cm-rename').style.display = '';
+  document.getElementById('cm-block').style.display  = playMode ? '' : 'none';
+  document.getElementById('cm-block').textContent = n.blocked ? '✓ Desbloquear' : '⊘ Bloquear';
+  const m = document.getElementById('ctx-menu');
+  m.style.display = 'block';
+  m.style.left = Math.min(x, window.innerWidth-160) + 'px';
+  m.style.top  = Math.min(y, window.innerHeight-120) + 'px';
+}
+
+function showCtxEdge(e, x, y) {
+  ctxTarget = { type:'edge', obj:e };
+  const f = gNode(e.from), t = gNode(e.to);
+  document.getElementById('cm-label').textContent = `${f?.label}→${t?.label} (custo:${e.cost})`;
+  document.getElementById('cm-rename').style.display = 'none';
+  document.getElementById('cm-block').style.display  = 'none';
+  const m = document.getElementById('ctx-menu');
+  m.style.display = 'block';
+  m.style.left = Math.min(x, window.innerWidth-160) + 'px';
+  m.style.top  = Math.min(y, window.innerHeight-80)  + 'px';
+}
+
+function closeCtxMenu() { document.getElementById('ctx-menu').style.display = 'none'; }
+document.addEventListener('mousedown', e => {
+  if (!document.getElementById('ctx-menu').contains(e.target)) closeCtxMenu();
+});
+
+document.getElementById('cm-rename').onclick = () => {
+  if (ctxTarget?.type === 'node') { closeCtxMenu(); renameNode(ctxTarget.obj); }
+};
+document.getElementById('cm-block').onclick = () => {
+  if (ctxTarget?.type === 'node') {
+    ctxTarget.obj.blocked = !ctxTarget.obj.blocked;
+    if (pathHL) findPath();
+    updatePlayPanel(); updateGraphInfo(); autoSave(); closeCtxMenu();
+  }
+};
+document.getElementById('cm-del').onclick = () => {
+  if (!ctxTarget) return;
+  if (ctxTarget.type === 'node') deleteNode(ctxTarget.obj.id);
+  else deleteEdge(ctxTarget.obj.id);
+  closeCtxMenu();
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EDGE POPUP
+// ─────────────────────────────────────────────────────────────────────────────
+function openEdgePopup(fromId, toId, sx, sy) {
+  pendFrom = fromId; pendTo = toId;
+  const f = gNode(fromId), t = gNode(toId);
+  document.getElementById('ep-title').textContent = `Aresta: ${f.label} ↔ ${t.label}`;
+  document.getElementById('ep-ab').textContent   = `→ ${f.label} → ${t.label}`;
+  document.getElementById('ep-ba').textContent   = `← ${t.label} → ${f.label}`;
+  document.getElementById('ep-cost').value = 1;
+  const pop = document.getElementById('edge-popup');
+  pop.style.display = 'block';
+  pop.style.left = Math.min(sx, window.innerWidth-220) + 'px';
+  pop.style.top  = Math.min(sy, window.innerHeight-230) + 'px';
+  document.getElementById('ep-cost').focus();
+}
+
+function closeEdgePopup() {
+  document.getElementById('edge-popup').style.display = 'none';
+  edgeSrc = null; pendFrom = null; pendTo = null;
+}
+
+document.getElementById('ep-ab').onclick = () => {
+  const c = parseFloat(document.getElementById('ep-cost').value) || 1;
+  addEdge(pendFrom, pendTo, c); closeEdgePopup();
+};
+document.getElementById('ep-ba').onclick = () => {
+  const c = parseFloat(document.getElementById('ep-cost').value) || 1;
+  addEdge(pendTo, pendFrom, c); closeEdgePopup();
+};
+document.getElementById('ep-both').onclick = () => {
+  const c = parseFloat(document.getElementById('ep-cost').value) || 1;
+  addEdge(pendFrom, pendTo, c); addEdge(pendTo, pendFrom, c); closeEdgePopup();
+};
+
+document.addEventListener('mousedown', e => {
+  const pop = document.getElementById('edge-popup');
+  if (pop.style.display !== 'none' && !pop.contains(e.target)) closeEdgePopup();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NODE / EDGE EDITING
+// ─────────────────────────────────────────────────────────────────────────────
+function renameNode(n) {
+  const v = prompt('Novo nome do nó:', n.label);
+  if (v !== null && v.trim()) {
+    n.label = v.trim();
+    updatePropsPanel(); refreshSelects(); autoSave();
+  }
+}
+
+function editEdgeCost(e) {
+  const v = prompt('Novo custo da aresta:', e.cost);
+  if (v !== null) {
+    const c = parseFloat(v);
+    if (!isNaN(c) && c > 0) { e.cost = c; updatePropsPanel(); autoSave(); }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATHFINDING
+// ─────────────────────────────────────────────────────────────────────────────
+function blockedSet() {
+  return new Set(G.nodes.filter(n => n.blocked).map(n => n.id));
+}
+
+function dijkstra(startId, endId, blocked) {
+  const dist = {}, prev = {}, prevEdge = {}, unvis = new Set();
+  for (const n of G.nodes) {
+    if (blocked.has(n.id)) continue;
+    dist[n.id] = Infinity;
+    unvis.add(n.id);
+  }
+  if (blocked.has(startId) || blocked.has(endId)) return null;
+  if (!(startId in dist) || !(endId in dist)) return null;
+  dist[startId] = 0;
+
+  while (unvis.size) {
+    let u = null;
+    for (const id of unvis) { if (u === null || dist[id] < dist[u]) u = id; }
+    if (u === null || dist[u] === Infinity) break;
+    if (u === endId) break;
+    unvis.delete(u);
+    for (const e of G.edges) {
+      if (e.from !== u) continue;
+      if (blocked.has(e.to) || !unvis.has(e.to)) continue;
+      const alt = dist[u] + e.cost;
+      if (alt < dist[e.to]) { dist[e.to] = alt; prev[e.to] = u; prevEdge[e.to] = e.id; }
+    }
+  }
+  if (dist[endId] === Infinity || !(endId in dist)) return null;
+  return reconstruct(startId, endId, dist, prev, prevEdge);
+}
+
+function bfs(startId, endId, blocked) {
+  if (blocked.has(startId) || blocked.has(endId)) return null;
+  const visited = new Set([startId]), prev = {}, prevEdge = {}, queue = [startId];
+  while (queue.length) {
+    const u = queue.shift();
+    if (u === endId) break;
+    for (const e of G.edges) {
+      if (e.from !== u || blocked.has(e.to) || visited.has(e.to)) continue;
+      visited.add(e.to); prev[e.to] = u; prevEdge[e.to] = e.id;
+      queue.push(e.to);
+    }
+  }
+  if (!visited.has(endId)) return null;
+  const dist = {};
+  G.nodes.forEach(n => { if (!blocked.has(n.id)) dist[n.id] = Infinity; });
+  dist[startId] = 0;
+  const fake = {};
+  // compute costs for BFS path
+  const fp = {}, fe = {};
+  Object.assign(fp, prev); Object.assign(fe, prevEdge);
+  return reconstruct(startId, endId, dist, fp, fe, true);
+}
+
+function reconstruct(startId, endId, dist, prev, prevEdge, calcCost=false) {
+  const nodes = [], edges = [];
+  let cur = endId;
+  while (cur !== undefined) {
+    nodes.unshift(cur);
+    if (prevEdge[cur]) edges.unshift(prevEdge[cur]);
+    cur = prev[cur];
+  }
+  if (nodes[0] !== startId) return null;
+  let cost = 0;
+  for (const eid of edges) { const e = gEdge(eid); if(e) cost += e.cost; }
+  return { nodes, edges, cost, steps: edges.length };
+}
+
+function findPath() {
+  const fromId = document.getElementById('pf-from').value;
+  const toId   = document.getElementById('pf-to').value;
+  const algo   = document.getElementById('pf-algo').value;
+  const res    = document.getElementById('pf-result');
+
+  if (!fromId || !toId) { res.innerHTML = '<span class="info">Selecione origem e destino.</span>'; return; }
+  if (fromId === toId)  { res.innerHTML = '<span class="info">Origem e destino são iguais.</span>'; return; }
+
+  const blocked = blockedSet();
+  const result = algo === 'bfs' ? bfs(fromId, toId, blocked) : dijkstra(fromId, toId, blocked);
+
+  if (!result) {
+    pathHL = null;
+    const fn = gNode(fromId)?.label, tn = gNode(toId)?.label;
+    res.innerHTML = `<span class="fail">Sem caminho de ${fn} → ${tn}</span><span class="info">${blocked.size > 0 ? `(${blocked.size} nó(s) bloqueado(s))` : ''}</span>`;
+    setStatus('Sem caminho encontrado.');
+    return;
+  }
+
+  pathHL = { nodes: new Set(result.nodes), edges: new Set(result.edges) };
+  const labels = result.nodes.map(id => gNode(id)?.label || id).join(' → ');
+  const fn = gNode(fromId)?.label, tn = gNode(toId)?.label;
+  res.innerHTML = `
+    <span class="ok">✓ Caminho: ${labels}</span>
+    <span class="info">Custo total: ${result.cost.toFixed(2)}</span>
+    <span class="info">Interações (arestas): ${result.steps}</span>
+    <span class="info">Algoritmo: ${algo === 'bfs' ? 'BFS' : 'Dijkstra'}</span>
+    ${blocked.size > 0 ? `<span class="info">${blocked.size} nó(s) bloqueado(s)</span>` : ''}
+  `;
+  setStatus(`Caminho ${fn}→${tn}: custo ${result.cost.toFixed(2)}, ${result.steps} aresta(s).`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDERING
+// ─────────────────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  // Background
+  ctx.fillStyle = '#12151e';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // Grid
+  drawGrid();
+
+  ctx.save();
+  ctx.translate(panX, panY);
+
+  // Edges
+  for (const e of G.edges) drawEdge(e);
+
+  // Edge-in-progress
+  if (mode === 'add_edge' && edgeSrc !== null) {
+    const src = gNode(edgeSrc);
+    if (src) {
+      ctx.save();
+      ctx.strokeStyle = '#f39c12';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6,3]);
+      ctx.beginPath(); ctx.moveTo(src.x, src.y); ctx.lineTo(mwx, mwy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+
+  // Nodes
+  for (const n of G.nodes) drawNode(n);
+
+  ctx.restore();
+
+  requestAnimationFrame(render);
+}
+
+function drawGrid() {
+  const gs = 40;
+  ctx.strokeStyle = '#1a2030'; ctx.lineWidth = 1;
+  const ox = ((panX % gs) + gs) % gs;
+  const oy = ((panY % gs) + gs) % gs;
+  for (let x = ox; x < cv.width; x += gs) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cv.height); ctx.stroke();
+  }
+  for (let y = oy; y < cv.height; y += gs) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cv.width, y); ctx.stroke();
+  }
+}
+
+function drawNode(n) {
+  const isSel  = selected?.type === 'node' && selected.id === n.id;
+  const isHov  = hovNode === n.id;
+  const isSrc  = edgeSrc === n.id;
+  const isPath = pathHL?.nodes.has(n.id);
+  const isBlk  = n.blocked;
+
+  // Glow
+  if (isSel || isPath || isSrc) {
+    ctx.shadowColor = isSel ? '#e94560' : isPath ? '#27ae60' : '#f39c12';
+    ctx.shadowBlur = 18;
+  }
+
+  // Fill
+  let fill = '#1a2848';
+  if (isBlk)  fill = '#3a0808';
+  else if (isPath) fill = '#0a3020';
+  else if (isSel)  fill = '#2a1020';
+  else if (isSrc)  fill = '#3a2800';
+  else if (isHov)  fill = '#1e3058';
+
+  ctx.fillStyle = fill;
+  ctx.beginPath(); ctx.arc(n.x, n.y, NR, 0, Math.PI*2); ctx.fill();
+
+  // Stroke
+  let stroke = '#3a6aaa';
+  if (isBlk)  stroke = '#c0392b';
+  else if (isPath) stroke = '#27ae60';
+  else if (isSel)  stroke = '#e94560';
+  else if (isSrc)  stroke = '#f39c12';
+  else if (isHov)  stroke = '#6aaaee';
+
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = (isSel || isPath) ? 3 : 2;
+  ctx.beginPath(); ctx.arc(n.x, n.y, NR, 0, Math.PI*2); ctx.stroke();
+
+  ctx.shadowBlur = 0;
+
+  // Label
+  ctx.fillStyle = isBlk ? '#ff8080' : '#e0e8f8';
+  ctx.font = `bold 13px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(n.label, n.x, n.y);
+
+  // Blocked X badge
+  if (isBlk) {
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillText('BLOQ', n.x, n.y + NR - 9);
+  }
+}
+
+function drawEdge(e) {
+  const f = gNode(e.from), t = gNode(e.to);
+  if (!f || !t) return;
+  const isSel  = selected?.type === 'edge' && selected.id === e.id;
+  const isPath = pathHL?.edges.has(e.id);
+  const color  = isPath ? '#27ae60' : isSel ? '#e94560' : '#3a6aaa';
+  const lw     = (isSel || isPath) ? 3 : 1.8;
+
+  if (f.id === t.id) { drawSelfLoop(e, f, color, lw); return; }
+
+  const rev = G.edges.some(r => r.from === e.to && r.to === e.from);
+  const dx = t.x - f.x, dy = t.y - f.y;
+  const dist = Math.hypot(dx, dy);
+  if (!dist) return;
+  const nx = dx/dist, ny = dy/dist;
+
+  if (isPath) { ctx.shadowColor = '#27ae60'; ctx.shadowBlur = 10; }
+
+  if (rev) {
+    const off = 14;
+    const px = -ny*off, py = nx*off;
+    const sx = f.x + nx*NR + px, sy = f.y + ny*NR + py;
+    const ex = t.x - nx*NR + px, ey = t.y - ny*NR + py;
+    const cpx = (f.x+t.x)/2 + px*2.5, cpy = (f.y+t.y)/2 + py*2.5;
+
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(cpx, cpy, ex, ey); ctx.stroke();
+
+    const angle = Math.atan2(ey-cpy, ex-cpx);
+    arrow(ex, ey, angle, color);
+
+    const mx = 0.25*sx + 0.5*cpx + 0.25*ex;
+    const my = 0.25*sy + 0.5*cpy + 0.25*ey;
+    costBadge(e.cost, mx, my);
+  } else {
+    const sx = f.x + nx*NR, sy = f.y + ny*NR;
+    const ex = t.x - nx*NR, ey = t.y - ny*NR;
+
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+
+    arrow(ex, ey, Math.atan2(ey-sy, ex-sx), color);
+    costBadge(e.cost, (sx+ex)/2, (sy+ey)/2);
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+function drawSelfLoop(e, n, color, lw) {
+  const lx = n.x + NR*0.7, ly = n.y - NR*0.7;
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.arc(lx, ly, 20, 0, Math.PI*1.6); ctx.stroke();
+  const ax = lx + 20*Math.cos(Math.PI*1.6), ay = ly + 20*Math.sin(Math.PI*1.6);
+  arrow(ax, ay, Math.PI*1.6 + Math.PI/2, color);
+  costBadge(e.cost, lx + 28, ly - 18);
+}
+
+function arrow(x, y, angle, color) {
+  const s = 10;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x - s*Math.cos(angle-0.4), y - s*Math.sin(angle-0.4));
+  ctx.lineTo(x - s*Math.cos(angle+0.4), y - s*Math.sin(angle+0.4));
+  ctx.closePath(); ctx.fill();
+}
+
+function costBadge(cost, x, y) {
+  ctx.fillStyle = '#0a0f1a';
+  ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#2a4060'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI*2); ctx.stroke();
+  ctx.fillStyle = '#f39c12';
+  ctx.font = 'bold 10px "Segoe UI"';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(cost % 1 === 0 ? cost : cost.toFixed(1), x, y);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI UPDATES
+// ─────────────────────────────────────────────────────────────────────────────
+function updatePropsPanel() {
+  const el = document.getElementById('props-body');
+  if (!selected) { el.innerHTML = '<span style="color:#5a6a8a;font-size:12px;">Selecione um elemento</span>'; return; }
+
+  if (selected.type === 'node') {
+    const n = gNode(selected.id);
+    if (!n) { selected = null; updatePropsPanel(); return; }
+    el.innerHTML = `
+      <div class="field"><label>ID</label><input readonly value="${n.id}"></div>
+      <div class="field"><label>Rótulo</label>
+        <input id="p-label" value="${n.label}" onchange="renameNodeById('${n.id}',this.value)">
+      </div>
+      <div style="font-size:11px;color:#6a7a9a;margin-top:4px;">Dê duplo-clique no nó para renomear.<br>Arraste para mover. Del para deletar.</div>
+    `;
+  } else {
+    const e = gEdge(selected.id);
+    if (!e) { selected = null; updatePropsPanel(); return; }
+    const f = gNode(e.from), t = gNode(e.to);
+    el.innerHTML = `
+      <div class="field"><label>Direção</label><input readonly value="${f?.label || '?'} → ${t?.label || '?'}"></div>
+      <div class="field"><label>Custo</label>
+        <input id="p-cost" type="number" value="${e.cost}" min="0.01" step="0.1"
+               onchange="editEdgeCostById('${e.id}',this.value)">
+      </div>
+      <div style="font-size:11px;color:#6a7a9a;margin-top:4px;">Duplo-clique na aresta para editar o custo.</div>
+    `;
+  }
+}
+
+function renameNodeById(id, val) {
+  const n = gNode(id);
+  if (n && val.trim()) { n.label = val.trim(); refreshSelects(); autoSave(); }
+}
+
+function editEdgeCostById(id, val) {
+  const e = gEdge(id), c = parseFloat(val);
+  if (e && !isNaN(c) && c > 0) { e.cost = c; autoSave(); }
+}
+
+function refreshSelects() {
+  const opts = ['<option value="">-- selecione --</option>',
+    ...G.nodes.map(n => `<option value="${n.id}">${n.label} (${n.id})</option>`)
+  ].join('');
+  document.getElementById('pf-from').innerHTML = opts;
+  document.getElementById('pf-to').innerHTML   = opts;
+}
+
+function updateGraphInfo() {
+  document.getElementById('gi-nodes').textContent   = G.nodes.length;
+  document.getElementById('gi-edges').textContent   = G.edges.length;
+  document.getElementById('gi-blocked').textContent = G.nodes.filter(n=>n.blocked).length;
+}
+
+function updatePlayPanel() {
+  const bl = G.nodes.filter(n => n.blocked);
+  const div = document.getElementById('blocked-list');
+  if (!bl.length) { div.innerHTML = '<span id="blocked-empty" style="color:#5a6a8a;font-size:12px;">Nenhum nó bloqueado.</span>'; return; }
+  div.innerHTML = bl.map(n => `
+    <div class="bnode">
+      <span>⊘ ${n.label}</span>
+      <span class="unblock" onclick="unblockNode('${n.id}')">✕</span>
+    </div>
+  `).join('');
+}
+
+function unblockNode(id) {
+  const n = gNode(id);
+  if (n) { n.blocked = false; if (pathHL) findPath(); updatePlayPanel(); updateGraphInfo(); autoSave(); }
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSISTENCE
+// ─────────────────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'graphengine_v1';
+
+function autoSave() {
+  const data = {
+    nodes: G.nodes, edges: G.edges,
+    nextNode: G.nextNode, nextEdge: G.nextEdge, labelIdx: G.labelIdx,
+    panX, panY,
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch(e) { /* quota */ }
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    G.nodes    = data.nodes    || [];
+    G.edges    = data.edges    || [];
+    G.nextNode = data.nextNode || 1;
+    G.nextEdge = data.nextEdge || 1;
+    G.labelIdx = data.labelIdx || G.nodes.length;
+    panX = data.panX || 0;
+    panY = data.panY || 0;
+    setStatus('Grafo carregado do cache local.');
+  } catch(e) {
+    setStatus('Não foi possível carregar o cache.');
+  }
+}
+
+function exportGraph() {
+  const data = {
+    version: 1,
+    nodes: G.nodes.map(n => ({ id:n.id, x:n.x, y:n.y, label:n.label })),
+    edges: G.edges.map(e => ({ id:e.id, from:e.from, to:e.to, cost:e.cost })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'grafo.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('Grafo exportado.');
+}
+
+function importGraph(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      G.nodes = (data.nodes || []).map(n => ({ ...n, blocked:false }));
+      G.edges = data.edges || [];
+      G.nextNode = Math.max(1, ...G.nodes.map(n => parseInt(n.id.slice(1)||0)+1));
+      G.nextEdge = Math.max(1, ...G.edges.map(e => parseInt(e.id.slice(1)||0)+1));
+      G.labelIdx = G.nodes.length;
+      selected = null; edgeSrc = null; pathHL = null;
+      panX = 0; panY = 0;
+      refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
+      setStatus(`Grafo importado: ${G.nodes.length} nós, ${G.edges.length} arestas.`);
+    } catch(err) {
+      alert('Arquivo inválido: ' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STARTUP
+// ─────────────────────────────────────────────────────────────────────────────
+loadFromStorage();
+setMode('select');
+updatePropsPanel();
+refreshSelects();
+updateGraphInfo();
+updatePlayPanel();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Qt Creator
+*.pro.user
+*.pro.user.*
+.qtcreator/
+
+# Build output
+build/
+build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+Makefile*
+.qmake.stash
+
+# Claude Code
+.claude/
