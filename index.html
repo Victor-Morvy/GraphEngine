@@ -781,25 +781,30 @@ function floodFill(emitterId) {
   if (blocked.has(emitterId))
     return { emitter: emitterId, nodes: new Set(), edges: new Set() };
 
-  // BFS seguindo arestas no sentido da seta — para onde o "líquido" pode escoar
-  const reachNodes = new Set([emitterId]);
+  // BFS com distância — dist[id] = passos a partir do emissor
+  const dist = new Map([[emitterId, 0]]);
   const queue = [emitterId];
 
   while (queue.length) {
     const u = queue.shift();
     for (const e of G.edges) {
-      if (e.from !== u)           continue; // só no sentido da aresta
-      if (blocked.has(e.to))     continue; // válvula fechada: fluxo pára aqui
-      if (reachNodes.has(e.to))  continue; // já visitado
-      reachNodes.add(e.to);
+      if (e.from !== u)       continue; // só no sentido da seta
+      if (blocked.has(e.to)) continue; // válvula fechada
+      if (dist.has(e.to))    continue; // já visitado
+      dist.set(e.to, dist.get(u) + 1);
       queue.push(e.to);
     }
   }
 
-  // Arestas que carregam fluxo: saem de nó alcançável e chegam a nó alcançável
+  const reachNodes = new Set(dist.keys());
+
+  // Uma aresta u→v carrega fluxo APENAS se dist[u] < dist[v]:
+  // o fluxo só anda para frente — nunca de volta nem lateralmente.
+  // Isso impede que A→B e B→A apareçam ambas como "fluindo"
+  // quando o fluxo saiu de A.
   const reachEdges = new Set();
   for (const e of G.edges) {
-    if (reachNodes.has(e.from) && reachNodes.has(e.to))
+    if (dist.has(e.from) && dist.has(e.to) && dist.get(e.from) < dist.get(e.to))
       reachEdges.add(e.id);
   }
 
