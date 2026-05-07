@@ -265,56 +265,53 @@ GraphEngine::FloodResult GraphEngine::floodFill(const QString &emitterLabel) con
 
     // Emitter itself is blocked: no flow at all
     if (m_nodes[emitterId].blocked) {
-        for (const NodeData &n : m_nodes)
-            if (n.label != emitterLabel && !n.blocked)
-                result.unreachable.append(n.label);
+        for (NodeId id = 0; id < static_cast<NodeId>(m_nodes.size()); ++id)
+            if (id != emitterId && !m_nodes[id].blocked)
+                result.unreachable.append(m_nodes[id].label);
         return result;
     }
 
     const int N = m_nodes.size();
 
     // dist[id] = BFS distance from emitter, -1 = unvisited
-    std::vector<int> dist(N, -1);
+    std::vector<int>  dist(N, -1);
+    std::vector<bool> isBlockedHit(N, false);
+
     dist[emitterId] = 0;
 
-    std::vector<bool> isBlockedHit(N, false); // blocked nodes the flow touched
-
     struct PendingEdge { NodeId from; NodeId to; double cost; };
-    std::vector<PendingEdge> edgesToBlocked;  // edges arriving at valves
+    std::vector<PendingEdge> edgesToBlocked;
 
     std::queue<NodeId> q;
     q.push(emitterId);
 
+    // ── BFS — pure int, no strings ────────────────────────────────────────────
     while (!q.empty()) {
         const NodeId u = q.front(); q.pop();
 
         for (const Link &lnk : m_adj[u]) {
             if (m_nodes[lnk.to].blocked) {
-                // Flow arrives at valve — record, but do not cross
-                if (!isBlockedHit[lnk.to]) {
-                    isBlockedHit[lnk.to] = true;
-                    result.blockedReached.append(m_nodes[lnk.to].label);
-                }
+                isBlockedHit[lnk.to] = true;          // idempotent flag
                 edgesToBlocked.push_back({u, lnk.to, lnk.cost});
                 continue;
             }
-            if (dist[lnk.to] != -1) continue; // already visited
+            if (dist[lnk.to] != -1) continue;
             dist[lnk.to] = dist[u] + 1;
             q.push(lnk.to);
         }
     }
 
-    // Classify every node (excluding emitter)
+    // ── Boundary: NodeId → label (all string work happens here, once) ─────────
     for (NodeId id = 0; id < N; ++id) {
         if (id == emitterId) continue;
-        if (dist[id] != -1)
+        if (isBlockedHit[id])
+            result.blockedReached.append(m_nodes[id].label);
+        else if (dist[id] != -1)
             result.reachable.append(m_nodes[id].label);
-        else if (!isBlockedHit[id])
+        else
             result.unreachable.append(m_nodes[id].label);
-        // isBlockedHit nodes are already in blockedReached
     }
 
-    // Collect flowing edges between free nodes: dist[from] < dist[to]
     for (NodeId u = 0; u < N; ++u) {
         if (dist[u] == -1) continue;
         for (const Link &lnk : m_adj[u]) {
@@ -322,7 +319,6 @@ GraphEngine::FloodResult GraphEngine::floodFill(const QString &emitterLabel) con
                 result.flowEdges.append({m_nodes[u].label, m_nodes[lnk.to].label, lnk.cost});
         }
     }
-    // Add edges that arrived at valves (flow reached them)
     for (const PendingEdge &pe : edgesToBlocked)
         result.flowEdges.append({m_nodes[pe.from].label, m_nodes[pe.to].label, pe.cost});
 
