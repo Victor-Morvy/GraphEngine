@@ -237,14 +237,130 @@ void GraphEngine::clear()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PathResult
+// Flow analysis - BFS flood-fill
+//
+// Mirrors the JavaScript floodFill() in index.html exactly:
+//   1. BFS from emitter following directed edges (adjacency list = O(neighbors))
+//   2. On hitting a blocked node: record it in blockedReached + record the
+//      incoming edge — BFS does NOT continue past it (valve closed)
+//   3. After BFS, mark edges as flowing only when dist[from] < dist[to]
+//      (flow never goes sideways or backwards)
+//   4. Edges to blocked nodes are always marked as flowing (flow reached valve)
+//
+// All inner loop work is int-indexed. Strings appear only at boundaries.
+// ─────────────────────────────────────────────────────────────────────────────
+
+GraphEngine::FloodResult GraphEngine::floodFill(const QString &emitterLabel) const
+{
+    FloodResult result;
+    result.emitter = emitterLabel;
+
+    const NodeId emitterId = resolve(emitterLabel);
+    if (emitterId == kInvalid) {
+        qWarning() << "GraphEngine::floodFill: unknown emitter" << emitterLabel;
+        return result;
+    }
+
+    result.valid = true;
+
+    // Emitter itself is blocked: no flow at all
+    if (m_nodes[emitterId].blocked) {
+        for (const NodeData &n : m_nodes)
+            if (n.label != emitterLabel && !n.blocked)
+                result.unreachable.append(n.label);
+        return result;
+    }
+
+    const int N = m_nodes.size();
+
+    // dist[id] = BFS distance from emitter, -1 = unvisited
+    std::vector<int> dist(N, -1);
+    dist[emitterId] = 0;
+
+    std::vector<bool> isBlockedHit(N, false); // blocked nodes the flow touched
+
+    struct PendingEdge { NodeId from; NodeId to; double cost; };
+    std::vector<PendingEdge> edgesToBlocked;  // edges arriving at valves
+
+    std::queue<NodeId> q;
+    q.push(emitterId);
+
+    while (!q.empty()) {
+        const NodeId u = q.front(); q.pop();
+
+        for (const Link &lnk : m_adj[u]) {
+            if (m_nodes[lnk.to].blocked) {
+                // Flow arrives at valve — record, but do not cross
+                if (!isBlockedHit[lnk.to]) {
+                    isBlockedHit[lnk.to] = true;
+                    result.blockedReached.append(m_nodes[lnk.to].label);
+                }
+                edgesToBlocked.push_back({u, lnk.to, lnk.cost});
+                continue;
+            }
+            if (dist[lnk.to] != -1) continue; // already visited
+            dist[lnk.to] = dist[u] + 1;
+            q.push(lnk.to);
+        }
+    }
+
+    // Classify every node (excluding emitter)
+    for (NodeId id = 0; id < N; ++id) {
+        if (id == emitterId) continue;
+        if (dist[id] != -1)
+            result.reachable.append(m_nodes[id].label);
+        else if (!isBlockedHit[id])
+            result.unreachable.append(m_nodes[id].label);
+        // isBlockedHit nodes are already in blockedReached
+    }
+
+    // Collect flowing edges between free nodes: dist[from] < dist[to]
+    for (NodeId u = 0; u < N; ++u) {
+        if (dist[u] == -1) continue;
+        for (const Link &lnk : m_adj[u]) {
+            if (dist[lnk.to] != -1 && dist[u] < dist[lnk.to])
+                result.flowEdges.append({m_nodes[u].label, m_nodes[lnk.to].label, lnk.cost});
+        }
+    }
+    // Add edges that arrived at valves (flow reached them)
+    for (const PendingEdge &pe : edgesToBlocked)
+        result.flowEdges.append({m_nodes[pe.from].label, m_nodes[pe.to].label, pe.cost});
+
+    return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PathResult / FloodResult — toString
 // ─────────────────────────────────────────────────────────────────────────────
 
 QString GraphEngine::PathResult::toString() const
 {
     if (!found) return QStringLiteral("Sem caminho.");
     return QStringLiteral("[ %1 ]  custo: %2  |  %3 aresta(s)")
-        .arg(path.join(QStringLiteral(" → ")))
+        .arg(path.join(QStringLiteral(" -> ")))
         .arg(totalCost)
         .arg(steps);
+}
+
+QString GraphEngine::FloodResult::FlowEdge::toString() const
+{
+    return QStringLiteral("%1 -> %2  (custo: %3)").arg(from, to).arg(cost);
+}
+
+QString GraphEngine::FloodResult::toString() const
+{
+    if (!valid) return QStringLiteral("FloodResult invalido.");
+
+    QStringList lines;
+    lines << QStringLiteral("Emissor      : %1").arg(emitter);
+    lines << QStringLiteral("Alcancaveis  : %1").arg(
+                reachable.isEmpty() ? QStringLiteral("(nenhum)") : reachable.join(", "));
+    lines << QStringLiteral("Valvulas hit : %1").arg(
+                blockedReached.isEmpty() ? QStringLiteral("(nenhuma)") : blockedReached.join(", "));
+    lines << QStringLiteral("Inalcancaveis: %1").arg(
+                unreachable.isEmpty() ? QStringLiteral("(nenhum)") : unreachable.join(", "));
+    lines << QStringLiteral("Arestas fluxo: %1").arg(flowEdges.size());
+    for (const FlowEdge &e : flowEdges)
+        lines << QStringLiteral("  ") + e.toString();
+    return lines.join(QStringLiteral("\n"));
 }
