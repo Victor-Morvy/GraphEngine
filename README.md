@@ -6,7 +6,7 @@ O projeto tem dois componentes independentes que se comunicam via JSON:
 
 | Componente | Tecnologia | Função |
 |---|---|---|
-| `index.html` | HTML5 / Canvas / JS | Editor visual — cria, edita e exporta grafos |
+| `index.html` | HTML5 / Canvas / JS | Editor visual — cria, edita, analisa e exporta grafos |
 | `lib/` | C++ / Qt | Biblioteca estática — carrega o JSON e faz pathfinding |
 
 ---
@@ -46,11 +46,29 @@ Cada aresta tem um **custo** (padrão `1`).
 
 Ativa o modo de teste em runtime:
 
-- Clique nos nós para **bloqueá-los / desbloqueá-los**
-- Nós bloqueados são ignorados no pathfinding
+- Clique nos nós para **bloqueá-los / desbloqueá-los** (válvulas fechadas)
+- Nós bloqueados são ignorados no pathfinding e na análise de fluxo
 - Painel lateral mostra resultado: caminho, custo total e número de arestas
 
 Algoritmos disponíveis: **Dijkstra** (custo mínimo) e **BFS** (menos saltos).
+
+### Análise de Fluxo ⬡
+
+Simula líquido escoando a partir de um **nó emissor** pelo grafo direcionado:
+
+| Visual | Significado |
+|---|---|
+| Âmbar pulsante + badge `EMIT` | Nó emissor (fonte do fluxo) |
+| Ciano + glow | Nó alcançável pelo fluxo |
+| Dashes ciano animados | Aresta carregando fluxo (animação no sentido da seta) |
+| Vermelho + badge `BLOQ` | Válvula fechada — fluxo para antes deste nó |
+| 20% opacidade | Elemento inalcançável |
+
+**Regras do fluxo:**
+- Segue apenas o sentido das setas (grafo direcionado)
+- Para em nós bloqueados (válvulas fechadas)
+- Uma aresta só é marcada como fluindo se `dist(from) < dist(to)` — o fluxo nunca volta por onde já passou, mesmo que exista aresta reversa
+- Re-analisa automaticamente ao bloquear/desbloquear nós no modo Play
 
 ### Persistência
 
