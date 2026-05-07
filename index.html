@@ -99,6 +99,10 @@ canvas { display:block; }
 #ctx-menu div:hover { background:#2a3550; color:#90c8ff; }
 #ctx-menu .danger:hover { background:#4a1a1a; color:#ff8080; }
 #ctx-menu hr { border:none; border-top:1px solid #2a3050; margin:3px 0; }
+
+/* Flow analysis */
+.flow-emit { color:#f59e0b; }
+.flow-reach { color:#06b6d4; }
 </style>
 </head>
 <body>
@@ -156,6 +160,20 @@ canvas { display:block; }
       <button class="btn-full" onclick="findPath()">🔍 Buscar Caminho</button>
       <div class="result-box" id="pf-result" style="margin-top:8px;">
         <span class="info">Nenhuma busca realizada.</span>
+      </div>
+    </div>
+
+    <!-- FLOW ANALYSIS -->
+    <div class="card">
+      <h3>Análise de Fluxo</h3>
+      <div class="field">
+        <label>Nó Emissor</label>
+        <select id="fl-emitter"><option value="">-- selecione --</option></select>
+      </div>
+      <button class="btn-full" onclick="analyzeFlow()">⬡ Analisar Fluxo</button>
+      <button class="btn-full" id="fl-clear" onclick="clearFlow()" style="margin-top:3px;display:none;">✕ Limpar Fluxo</button>
+      <div class="result-box" id="fl-result" style="margin-top:8px;">
+        <span class="info">Selecione um emissor para ver para onde o fluxo alcança.</span>
       </div>
     </div>
 
@@ -220,6 +238,8 @@ let edgeSrc = null;     // node id while placing edge
 let dragId = null;
 let dragOx = 0, dragOy = 0;
 let pathHL = null;      // {nodes:Set, edges:Set}
+let flowHL = null;      // {emitter:id, nodes:Set<id>, edges:Set<id>}
+let flowOffset = 0;     // animated dash phase
 let pendFrom = null, pendTo = null;  // edge popup
 
 // Canvas pan
@@ -278,6 +298,7 @@ function deleteNode(id) {
   G.edges = G.edges.filter(e => e.from !== id && e.to !== id);
   if (selected && selected.id === id) selected = null;
   if (pathHL) pathHL = null;
+  if (flowHL) clearFlow();
   refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
   setStatus('Nó deletado.');
 }
@@ -298,6 +319,7 @@ function deleteEdge(id) {
   G.edges = G.edges.filter(e => e.id !== id);
   if (selected && selected.id === id) selected = null;
   if (pathHL) pathHL = null;
+  if (flowHL) clearFlow();
   updatePropsPanel(); updateGraphInfo(); autoSave();
   setStatus('Aresta deletada.');
 }
@@ -305,7 +327,7 @@ function deleteEdge(id) {
 function newGraph() {
   if (G.nodes.length > 0 && !confirm('Criar novo grafo? O atual será perdido.')) return;
   G.nodes = []; G.edges = []; G.nextNode = 1; G.nextEdge = 1; G.labelIdx = 0;
-  selected = null; edgeSrc = null; pathHL = null;
+  selected = null; edgeSrc = null; pathHL = null; flowHL = null;
   panX = 0; panY = 0;
   refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
   setStatus('Novo grafo criado.');
@@ -340,7 +362,7 @@ function togglePlay() {
   document.getElementById('play-card').style.display = playMode ? '' : 'none';
   if (playMode) { setMode('select'); } else {
     G.nodes.forEach(n => n.blocked = false);
-    pathHL = null;
+    pathHL = null; clearFlow();
     setMode('select');
   }
   updatePlayPanel(); updateGraphInfo();
@@ -453,6 +475,7 @@ cv.addEventListener('mousedown', e => {
   if (playMode && mode === 'select' && hn) {
     hn.blocked = !hn.blocked;
     if (pathHL) findPath();
+    if (flowHL) analyzeFlow();
     updatePlayPanel(); updateGraphInfo(); autoSave();
     setStatus(`Nó "${hn.label}" ${hn.blocked ? 'bloqueado' : 'desbloqueado'}.`);
   }
@@ -572,6 +595,7 @@ document.getElementById('cm-block').onclick = () => {
   if (ctxTarget?.type === 'node') {
     ctxTarget.obj.blocked = !ctxTarget.obj.blocked;
     if (pathHL) findPath();
+    if (flowHL) analyzeFlow();
     updatePlayPanel(); updateGraphInfo(); autoSave(); closeCtxMenu();
   }
 };
@@ -747,9 +771,93 @@ function findPath() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FLOW ANALYSIS — BFS respeitando direção das arestas e válvulas (nós bloqueados)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function floodFill(emitterId) {
+  const blocked = blockedSet();
+
+  // Emissor bloqueado: fluxo zero
+  if (blocked.has(emitterId))
+    return { emitter: emitterId, nodes: new Set(), edges: new Set() };
+
+  // BFS seguindo arestas no sentido da seta — para onde o "líquido" pode escoar
+  const reachNodes = new Set([emitterId]);
+  const queue = [emitterId];
+
+  while (queue.length) {
+    const u = queue.shift();
+    for (const e of G.edges) {
+      if (e.from !== u)           continue; // só no sentido da aresta
+      if (blocked.has(e.to))     continue; // válvula fechada: fluxo pára aqui
+      if (reachNodes.has(e.to))  continue; // já visitado
+      reachNodes.add(e.to);
+      queue.push(e.to);
+    }
+  }
+
+  // Arestas que carregam fluxo: saem de nó alcançável e chegam a nó alcançável
+  const reachEdges = new Set();
+  for (const e of G.edges) {
+    if (reachNodes.has(e.from) && reachNodes.has(e.to))
+      reachEdges.add(e.id);
+  }
+
+  return { emitter: emitterId, nodes: reachNodes, edges: reachEdges };
+}
+
+function analyzeFlow() {
+  const emitterId   = document.getElementById('fl-emitter').value;
+  const res         = document.getElementById('fl-result');
+  if (!emitterId) {
+    res.innerHTML = '<span class="info">Selecione um nó emissor.</span>';
+    return;
+  }
+
+  const emitterNode = gNode(emitterId);
+  if (!emitterNode) return;
+
+  flowHL = floodFill(emitterId);
+
+  document.getElementById('fl-clear').style.display = '';
+
+  if (emitterNode.blocked) {
+    res.innerHTML = `<span class="fail">⊘ Emissor "${emitterNode.label}" está bloqueado — válvula fechada na fonte.</span>`;
+    setStatus(`Fluxo bloqueado na fonte "${emitterNode.label}".`);
+    return;
+  }
+
+  const total       = G.nodes.length;
+  const reachCount  = flowHL.nodes.size - 1;          // exclui o próprio emissor
+  const edgeCount   = flowHL.edges.size;
+  const blockedStop = G.nodes.filter(n =>              // bloqueados que interromperam o fluxo
+    n.blocked && G.edges.some(e => flowHL.nodes.has(e.from) && e.to === n.id)
+  );
+  const unreachCount = total - flowHL.nodes.size;
+
+  res.innerHTML = `
+    <span class="flow-emit">⬡ Emissor: ${emitterNode.label}</span>
+    <span class="info">Nós alcançáveis: <span class="flow-reach">${reachCount}</span> de ${total - 1}</span>
+    <span class="info">Arestas com fluxo: <span class="flow-reach">${edgeCount}</span></span>
+    <span class="info">Nós inalcançáveis: ${unreachCount}</span>
+    ${blockedStop.length ? `<span class="info">Válvulas fechadas (bloqueando): ${blockedStop.map(n=>`<span style="color:#e74c3c">${n.label}</span>`).join(', ')}</span>` : ''}
+  `;
+  setStatus(`Fluxo de "${emitterNode.label}": ${flowHL.nodes.size} nó(s), ${edgeCount} aresta(s) ativas.`);
+}
+
+function clearFlow() {
+  flowHL = null;
+  const clrBtn = document.getElementById('fl-clear');
+  if (clrBtn) clrBtn.style.display = 'none';
+  const res = document.getElementById('fl-result');
+  if (res) res.innerHTML = '<span class="info">Selecione um emissor para ver para onde o fluxo alcança.</span>';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RENDERING
 // ─────────────────────────────────────────────────────────────────────────────
 function render() {
+  flowOffset = (flowOffset + 0.7) % 20; // anima o escoamento
   ctx.clearRect(0, 0, cv.width, cv.height);
 
   // Background
@@ -802,74 +910,118 @@ function drawGrid() {
 }
 
 function drawNode(n) {
-  const isSel  = selected?.type === 'node' && selected.id === n.id;
-  const isHov  = hovNode === n.id;
-  const isSrc  = edgeSrc === n.id;
-  const isPath = pathHL?.nodes.has(n.id);
-  const isBlk  = n.blocked;
+  const isSel       = selected?.type === 'node' && selected.id === n.id;
+  const isHov       = hovNode === n.id;
+  const isSrc       = edgeSrc === n.id;
+  const isPath      = pathHL?.nodes.has(n.id);
+  const isBlk       = n.blocked;
+  const isEmitter   = flowHL?.emitter === n.id;
+  const isFlowReach = flowHL !== null && flowHL.nodes.has(n.id) && !isEmitter;
+  const isFlowGhost = flowHL !== null && !flowHL.nodes.has(n.id) && !isBlk;
 
-  // Glow
-  if (isSel || isPath || isSrc) {
+  // Nós inalcançáveis ficam fantasmas
+  if (isFlowGhost) ctx.globalAlpha = 0.22;
+
+  // Glow / shadow
+  if (isEmitter) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 280);
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur  = 14 + pulse * 16;
+  } else if (isSel || isPath || isSrc) {
     ctx.shadowColor = isSel ? '#e94560' : isPath ? '#27ae60' : '#f39c12';
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur  = 18;
+  } else if (isFlowReach) {
+    ctx.shadowColor = '#06b6d4';
+    ctx.shadowBlur  = 10;
   }
 
   // Fill
   let fill = '#1a2848';
-  if (isBlk)  fill = '#3a0808';
-  else if (isPath) fill = '#0a3020';
-  else if (isSel)  fill = '#2a1020';
-  else if (isSrc)  fill = '#3a2800';
-  else if (isHov)  fill = '#1e3058';
+  if      (isBlk)        fill = '#3a0808';
+  else if (isEmitter)    fill = '#3d2900';
+  else if (isFlowReach)  fill = '#073040';
+  else if (isPath)       fill = '#0a3020';
+  else if (isSel)        fill = '#2a1020';
+  else if (isSrc)        fill = '#3a2800';
+  else if (isHov)        fill = '#1e3058';
 
   ctx.fillStyle = fill;
   ctx.beginPath(); ctx.arc(n.x, n.y, NR, 0, Math.PI*2); ctx.fill();
 
   // Stroke
   let stroke = '#3a6aaa';
-  if (isBlk)  stroke = '#c0392b';
-  else if (isPath) stroke = '#27ae60';
-  else if (isSel)  stroke = '#e94560';
-  else if (isSrc)  stroke = '#f39c12';
-  else if (isHov)  stroke = '#6aaaee';
+  if      (isBlk)        stroke = '#c0392b';
+  else if (isEmitter)    stroke = '#f59e0b';
+  else if (isFlowReach)  stroke = '#06b6d4';
+  else if (isPath)       stroke = '#27ae60';
+  else if (isSel)        stroke = '#e94560';
+  else if (isSrc)        stroke = '#f39c12';
+  else if (isHov)        stroke = '#6aaaee';
 
   ctx.strokeStyle = stroke;
-  ctx.lineWidth = (isSel || isPath) ? 3 : 2;
+  ctx.lineWidth = (isSel || isPath || isEmitter || isFlowReach) ? 3 : 2;
   ctx.beginPath(); ctx.arc(n.x, n.y, NR, 0, Math.PI*2); ctx.stroke();
 
   ctx.shadowBlur = 0;
 
   // Label
-  ctx.fillStyle = isBlk ? '#ff8080' : '#e0e8f8';
+  let labelColor = '#e0e8f8';
+  if      (isBlk)        labelColor = '#ff8080';
+  else if (isEmitter)    labelColor = '#fcd34d';
+  else if (isFlowReach)  labelColor = '#a5f3fc';
+
+  ctx.fillStyle = labelColor;
   ctx.font = `bold 13px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(n.label, n.x, n.y);
 
-  // Blocked X badge
+  // Badge inferior
   if (isBlk) {
-    ctx.fillStyle = '#e74c3c';
-    ctx.font = 'bold 9px sans-serif';
+    ctx.fillStyle = '#e74c3c'; ctx.font = 'bold 9px sans-serif';
     ctx.fillText('BLOQ', n.x, n.y + NR - 9);
+  } else if (isEmitter) {
+    ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 9px sans-serif';
+    ctx.fillText('EMIT', n.x, n.y + NR - 9);
   }
+
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur  = 0;
 }
 
 function drawEdge(e) {
   const f = gNode(e.from), t = gNode(e.to);
   if (!f || !t) return;
-  const isSel  = selected?.type === 'edge' && selected.id === e.id;
-  const isPath = pathHL?.edges.has(e.id);
-  const color  = isPath ? '#27ae60' : isSel ? '#e94560' : '#3a6aaa';
-  const lw     = (isSel || isPath) ? 3 : 1.8;
 
-  if (f.id === t.id) { drawSelfLoop(e, f, color, lw); return; }
+  const isSel   = selected?.type === 'edge' && selected.id === e.id;
+  const isPath  = pathHL?.edges.has(e.id);
+  const isFlow  = flowHL?.edges.has(e.id);
+  const hasFlow = flowHL !== null;
+
+  // Arestas sem fluxo ficam fantasmas
+  if (hasFlow && !isFlow) ctx.globalAlpha = 0.18;
+
+  const color = isFlow  ? '#06b6d4'
+              : isPath  ? '#27ae60'
+              : isSel   ? '#e94560'
+                        : '#3a6aaa';
+  const lw = (isSel || isPath || isFlow) ? 3 : 1.8;
+
+  if (f.id === t.id) {
+    drawSelfLoop(e, f, color, lw, isFlow);
+    ctx.globalAlpha = 1;
+    return;
+  }
 
   const rev = G.edges.some(r => r.from === e.to && r.to === e.from);
   const dx = t.x - f.x, dy = t.y - f.y;
   const dist = Math.hypot(dx, dy);
-  if (!dist) return;
+  if (!dist) { ctx.globalAlpha = 1; return; }
   const nx = dx/dist, ny = dy/dist;
 
   if (isPath) { ctx.shadowColor = '#27ae60'; ctx.shadowBlur = 10; }
+  if (isFlow) { ctx.shadowColor = '#06b6d4'; ctx.shadowBlur = 8; }
+
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
 
   if (rev) {
     const off = 14;
@@ -878,36 +1030,37 @@ function drawEdge(e) {
     const ex = t.x - nx*NR + px, ey = t.y - ny*NR + py;
     const cpx = (f.x+t.x)/2 + px*2.5, cpy = (f.y+t.y)/2 + py*2.5;
 
-    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    if (isFlow) { ctx.setLineDash([10, 5]); ctx.lineDashOffset = -flowOffset; }
     ctx.beginPath(); ctx.moveTo(sx, sy);
     ctx.quadraticCurveTo(cpx, cpy, ex, ey); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
 
-    const angle = Math.atan2(ey-cpy, ex-cpx);
-    arrow(ex, ey, angle, color);
-
-    const mx = 0.25*sx + 0.5*cpx + 0.25*ex;
-    const my = 0.25*sy + 0.5*cpy + 0.25*ey;
-    costBadge(e.cost, mx, my);
+    arrow(ex, ey, Math.atan2(ey-cpy, ex-cpx), color);
+    costBadge(e.cost, 0.25*sx + 0.5*cpx + 0.25*ex, 0.25*sy + 0.5*cpy + 0.25*ey);
   } else {
     const sx = f.x + nx*NR, sy = f.y + ny*NR;
     const ex = t.x - nx*NR, ey = t.y - ny*NR;
 
-    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    if (isFlow) { ctx.setLineDash([10, 5]); ctx.lineDashOffset = -flowOffset; }
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
 
     arrow(ex, ey, Math.atan2(ey-sy, ex-sx), color);
     costBadge(e.cost, (sx+ex)/2, (sy+ey)/2);
   }
 
   ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
 }
 
-function drawSelfLoop(e, n, color, lw) {
+function drawSelfLoop(e, n, color, lw, isFlow = false) {
   const lx = n.x + NR*0.7, ly = n.y - NR*0.7;
   ctx.strokeStyle = color; ctx.lineWidth = lw;
+  if (isFlow) { ctx.setLineDash([8, 4]); ctx.lineDashOffset = -flowOffset; }
   ctx.beginPath(); ctx.arc(lx, ly, 20, 0, Math.PI*1.6); ctx.stroke();
-  const ax = lx + 20*Math.cos(Math.PI*1.6), ay = ly + 20*Math.sin(Math.PI*1.6);
-  arrow(ax, ay, Math.PI*1.6 + Math.PI/2, color);
+  ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  arrow(lx + 20*Math.cos(Math.PI*1.6), ly + 20*Math.sin(Math.PI*1.6),
+        Math.PI*1.6 + Math.PI/2, color);
   costBadge(e.cost, lx + 28, ly - 18);
 }
 
@@ -978,8 +1131,9 @@ function refreshSelects() {
   const opts = ['<option value="">-- selecione --</option>',
     ...G.nodes.map(n => `<option value="${n.id}">${n.label} (${n.id})</option>`)
   ].join('');
-  document.getElementById('pf-from').innerHTML = opts;
-  document.getElementById('pf-to').innerHTML   = opts;
+  document.getElementById('pf-from').innerHTML    = opts;
+  document.getElementById('pf-to').innerHTML      = opts;
+  document.getElementById('fl-emitter').innerHTML = opts;
 }
 
 function updateGraphInfo() {
@@ -1002,7 +1156,7 @@ function updatePlayPanel() {
 
 function unblockNode(id) {
   const n = gNode(id);
-  if (n) { n.blocked = false; if (pathHL) findPath(); updatePlayPanel(); updateGraphInfo(); autoSave(); }
+  if (n) { n.blocked = false; if (pathHL) findPath(); if (flowHL) analyzeFlow(); updatePlayPanel(); updateGraphInfo(); autoSave(); }
 }
 
 function setStatus(msg) {
@@ -1070,7 +1224,7 @@ function importGraph(event) {
       G.nextNode = Math.max(1, ...G.nodes.map(n => parseInt(n.id.slice(1)||0)+1));
       G.nextEdge = Math.max(1, ...G.edges.map(e => parseInt(e.id.slice(1)||0)+1));
       G.labelIdx = G.nodes.length;
-      selected = null; edgeSrc = null; pathHL = null;
+      selected = null; edgeSrc = null; pathHL = null; flowHL = null;
       panX = 0; panY = 0;
       refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
       setStatus(`Grafo importado: ${G.nodes.length} nós, ${G.edges.length} arestas.`);
