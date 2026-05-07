@@ -1,13 +1,13 @@
 # GraphEngine
 
-Editor visual de grafos direcionados com pesos, exportação JSON e biblioteca C++ com Dijkstra.
+Editor visual de grafos direcionados com pesos, exportação JSON e biblioteca C++ com Dijkstra e BFS flood-fill.
 
 O projeto tem dois componentes independentes que se comunicam via JSON:
 
 | Componente | Tecnologia | Função |
 |---|---|---|
 | `index.html` | HTML5 / Canvas / JS | Editor visual — cria, edita, analisa e exporta grafos |
-| `lib/` | C++ / Qt | Biblioteca estática — carrega o JSON e faz pathfinding |
+| `lib/` | C++ / Qt | Biblioteca estática — pathfinding (Dijkstra) e análise de fluxo (BFS flood-fill) |
 
 ---
 
@@ -128,17 +128,27 @@ r.path       // QStringList{"A", "B", "C"}
 r.totalCost  // double — soma dos custos das arestas
 r.steps      // int    — número de arestas percorridas
 r.toString() // QString formatada para exibição
+
+// ── Análise de fluxo — BFS flood-fill ──────────────────────────────────────
+GraphEngine::FloodResult f = g.floodFill("A");
+
+f.reachable       // QStringList — nós que o fluxo alcançou
+f.blockedReached  // QStringList — válvulas que o fluxo atingiu (não cruzou)
+f.unreachable     // QStringList — nós que o fluxo não alcançou
+f.flowEdges       // QList<FlowEdge{from,to,cost}> — arestas com fluxo
+f.toString()      // QString formatada para exibição
 ```
 
 ### Estrutura interna
 
-Internamente todos os nós são indexados por `int` (`NodeId`). `QString` só toca o grafo na fronteira pública — uma única lookup de hash por chamada. O loop do Dijkstra opera exclusivamente sobre inteiros e `double[]` contíguos.
+Internamente todos os nós são indexados por `int` (`NodeId`). `QString` só toca o grafo na fronteira pública — uma única lookup de hash na entrada e reconstrução de labels na saída. Dijkstra e BFS operam exclusivamente sobre inteiros e `double[]` contíguos; strings aparecem apenas num único passe de conversão após o algoritmo terminar.
 
 ```
-label → NodeId   (QHash, 1× por chamada pública)
-m_nodes[id]      (QVector, acesso O(1) por índice)
-m_adj[fromId]    (lista de adjacência, Dijkstra itera só vizinhos)
-dist[] / prev[]  (std::vector<double/int>, cache-friendly)
+label → NodeId      (QHash, 1× por chamada pública)
+m_nodes[id]         (QVector, acesso O(1) por índice)
+m_adj[fromId]       (lista de adjacência, itera só vizinhos)
+dist[] / prev[]     (std::vector<double/int>, cache-friendly) — Dijkstra
+dist[] / blocked[]  (std::vector<int/bool>)                  — floodFill BFS
 ```
 
 ---
@@ -156,7 +166,7 @@ GraphEngine/
 │   └── graphengine.cpp
 └── app/
     ├── app.pro
-    └── main.cpp        # demo: carrega grafo.json e testa pathfinding
+    └── main.cpp        # demo: carrega grafo.json, testa Dijkstra e floodFill
 ```
 
 ## Formato JSON
