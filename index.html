@@ -779,18 +779,27 @@ function floodFill(emitterId) {
 
   // Emissor bloqueado: fluxo zero
   if (blocked.has(emitterId))
-    return { emitter: emitterId, nodes: new Set(), edges: new Set() };
+    return { emitter: emitterId, nodes: new Set(), edges: new Set(), blockedReached: new Set() };
 
   // BFS com distância — dist[id] = passos a partir do emissor
-  const dist = new Map([[emitterId, 0]]);
-  const queue = [emitterId];
+  const dist    = new Map([[emitterId, 0]]);
+  const queue   = [emitterId];
+  const blockedReached  = new Set(); // válvulas que o fluxo tocou mas não cruzou
+  const edgesToBlocked  = new Set(); // arestas que chegam até essas válvulas
 
   while (queue.length) {
     const u = queue.shift();
     for (const e of G.edges) {
-      if (e.from !== u)       continue; // só no sentido da seta
-      if (blocked.has(e.to)) continue; // válvula fechada
-      if (dist.has(e.to))    continue; // já visitado
+      if (e.from !== u) continue; // só no sentido da seta
+
+      if (blocked.has(e.to)) {
+        // Fluxo chegou até a válvula — registra mas não continua
+        blockedReached.add(e.to);
+        edgesToBlocked.add(e.id);
+        continue;
+      }
+
+      if (dist.has(e.to)) continue; // já visitado
       dist.set(e.to, dist.get(u) + 1);
       queue.push(e.to);
     }
@@ -798,17 +807,14 @@ function floodFill(emitterId) {
 
   const reachNodes = new Set(dist.keys());
 
-  // Uma aresta u→v carrega fluxo APENAS se dist[u] < dist[v]:
-  // o fluxo só anda para frente — nunca de volta nem lateralmente.
-  // Isso impede que A→B e B→A apareçam ambas como "fluindo"
-  // quando o fluxo saiu de A.
-  const reachEdges = new Set();
+  // Arestas entre nós livres: só fluem "para frente" (dist cresce)
+  const reachEdges = new Set(edgesToBlocked); // arestas até válvulas já incluídas
   for (const e of G.edges) {
     if (dist.has(e.from) && dist.has(e.to) && dist.get(e.from) < dist.get(e.to))
       reachEdges.add(e.id);
   }
 
-  return { emitter: emitterId, nodes: reachNodes, edges: reachEdges };
+  return { emitter: emitterId, nodes: reachNodes, edges: reachEdges, blockedReached };
 }
 
 function analyzeFlow() {
@@ -832,22 +838,22 @@ function analyzeFlow() {
     return;
   }
 
-  const total       = G.nodes.length;
-  const reachCount  = flowHL.nodes.size - 1;          // exclui o próprio emissor
-  const edgeCount   = flowHL.edges.size;
-  const blockedStop = G.nodes.filter(n =>              // bloqueados que interromperam o fluxo
-    n.blocked && G.edges.some(e => flowHL.nodes.has(e.from) && e.to === n.id)
-  );
-  const unreachCount = total - flowHL.nodes.size;
+  const total        = G.nodes.length;
+  const reachCount   = flowHL.nodes.size - 1; // exclui o próprio emissor
+  const edgeCount    = flowHL.edges.size;
+  const unreachCount = total - flowHL.nodes.size - flowHL.blockedReached.size;
+  const valveLabels  = [...flowHL.blockedReached]
+    .map(id => `<span style="color:#f59e0b">${gNode(id)?.label ?? id}</span>`)
+    .join(', ');
 
   res.innerHTML = `
     <span class="flow-emit">⬡ Emissor: ${emitterNode.label}</span>
     <span class="info">Nós alcançáveis: <span class="flow-reach">${reachCount}</span> de ${total - 1}</span>
     <span class="info">Arestas com fluxo: <span class="flow-reach">${edgeCount}</span></span>
-    <span class="info">Nós inalcançáveis: ${unreachCount}</span>
-    ${blockedStop.length ? `<span class="info">Válvulas fechadas (bloqueando): ${blockedStop.map(n=>`<span style="color:#e74c3c">${n.label}</span>`).join(', ')}</span>` : ''}
+    ${flowHL.blockedReached.size ? `<span class="info">Válvulas atingidas: ${valveLabels}</span>` : ''}
+    <span class="info">Inalcançáveis (sem fluxo): ${unreachCount}</span>
   `;
-  setStatus(`Fluxo de "${emitterNode.label}": ${flowHL.nodes.size} nó(s), ${edgeCount} aresta(s) ativas.`);
+  setStatus(`Fluxo de "${emitterNode.label}": ${reachCount} nó(s), ${flowHL.blockedReached.size} válvula(s) atingida(s).`);
 }
 
 function clearFlow() {
@@ -919,12 +925,14 @@ function drawNode(n) {
   const isHov       = hovNode === n.id;
   const isSrc       = edgeSrc === n.id;
   const isPath      = pathHL?.nodes.has(n.id);
-  const isBlk       = n.blocked;
-  const isEmitter   = flowHL?.emitter === n.id;
-  const isFlowReach = flowHL !== null && flowHL.nodes.has(n.id) && !isEmitter;
-  const isFlowGhost = flowHL !== null && !flowHL.nodes.has(n.id) && !isBlk;
+  const isBlk         = n.blocked;
+  const isEmitter     = flowHL?.emitter === n.id;
+  const isFlowReach   = flowHL !== null && flowHL.nodes.has(n.id) && !isEmitter;
+  const isFlowBlocked = flowHL !== null && (flowHL.blockedReached?.has(n.id) ?? false);
+  // Fantasma: nem alcançável, nem bloqueado-atingido, nem é o emissor
+  const isFlowGhost   = flowHL !== null && !flowHL.nodes.has(n.id)
+                        && !isFlowBlocked && !isEmitter;
 
-  // Nós inalcançáveis ficam fantasmas
   if (isFlowGhost) ctx.globalAlpha = 0.22;
 
   // Glow / shadow
@@ -932,6 +940,11 @@ function drawNode(n) {
     const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 280);
     ctx.shadowColor = '#f59e0b';
     ctx.shadowBlur  = 14 + pulse * 16;
+  } else if (isFlowBlocked) {
+    // Válvula atingida: glow âmbar pulsante — o fluxo bateu aqui
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur  = 10 + pulse * 12;
   } else if (isSel || isPath || isSrc) {
     ctx.shadowColor = isSel ? '#e94560' : isPath ? '#27ae60' : '#f39c12';
     ctx.shadowBlur  = 18;
@@ -940,7 +953,7 @@ function drawNode(n) {
     ctx.shadowBlur  = 10;
   }
 
-  // Fill
+  // Fill — bloqueado mantém vermelho escuro independente do estado de fluxo
   let fill = '#1a2848';
   if      (isBlk)        fill = '#3a0808';
   else if (isEmitter)    fill = '#3d2900';
@@ -955,17 +968,25 @@ function drawNode(n) {
 
   // Stroke
   let stroke = '#3a6aaa';
-  if      (isBlk)        stroke = '#c0392b';
-  else if (isEmitter)    stroke = '#f59e0b';
-  else if (isFlowReach)  stroke = '#06b6d4';
-  else if (isPath)       stroke = '#27ae60';
-  else if (isSel)        stroke = '#e94560';
-  else if (isSrc)        stroke = '#f39c12';
-  else if (isHov)        stroke = '#6aaaee';
+  if      (isFlowBlocked) stroke = '#f59e0b'; // âmbar: fluxo chegou aqui
+  else if (isBlk)         stroke = '#c0392b';
+  else if (isEmitter)     stroke = '#f59e0b';
+  else if (isFlowReach)   stroke = '#06b6d4';
+  else if (isPath)        stroke = '#27ae60';
+  else if (isSel)         stroke = '#e94560';
+  else if (isSrc)         stroke = '#f39c12';
+  else if (isHov)         stroke = '#6aaaee';
 
   ctx.strokeStyle = stroke;
-  ctx.lineWidth = (isSel || isPath || isEmitter || isFlowReach) ? 3 : 2;
+  ctx.lineWidth = (isSel || isPath || isEmitter || isFlowReach || isFlowBlocked) ? 3 : 2;
   ctx.beginPath(); ctx.arc(n.x, n.y, NR, 0, Math.PI*2); ctx.stroke();
+
+  // Anel extra âmbar para válvulas atingidas pelo fluxo
+  if (isFlowBlocked) {
+    ctx.strokeStyle = 'rgba(245,158,11,0.35)';
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(n.x, n.y, NR + 5, 0, Math.PI*2); ctx.stroke();
+  }
 
   ctx.shadowBlur = 0;
 
@@ -981,7 +1002,11 @@ function drawNode(n) {
   ctx.fillText(n.label, n.x, n.y);
 
   // Badge inferior
-  if (isBlk) {
+  if (isFlowBlocked) {
+    // Vermelho com contorno âmbar: "bloqueado mas o fluxo chegou"
+    ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 9px sans-serif';
+    ctx.fillText('BLOQ', n.x, n.y + NR - 9);
+  } else if (isBlk) {
     ctx.fillStyle = '#e74c3c'; ctx.font = 'bold 9px sans-serif';
     ctx.fillText('BLOQ', n.x, n.y + NR - 9);
   } else if (isEmitter) {
