@@ -5,7 +5,7 @@
 Dois componentes que se comunicam via JSON:
 
 1. **`index.html`** — editor visual de grafos (HTML5 + Canvas, sem dependências)
-2. **`lib/` + `app/`** — biblioteca C++ estática (Qt 6) com pathfinding Dijkstra
+2. **`lib/` + `app/`** — biblioteca C++ estática (Qt 6) com Dijkstra e BFS flood-fill
 
 ## Estrutura
 
@@ -31,6 +31,7 @@ GraphEngine/
 - **Lista de adjacência** (`m_adj[fromId]`): o Dijkstra itera só os vizinhos do nó atual, não todas as arestas.
 - **`std::vector<double>` para `dist[]`**: array contíguo, favorece cache no loop crítico.
 - `QVector` é alias de `QList` no Qt 6 — usar `emplace_back()` em vez de `append({})` para evitar ambiguidade de overload.
+- **`floodFill` — strings apenas na fronteira**: o loop BFS opera 100% em `NodeId` (int) e `bool[]`. A conversão NodeId → label acontece num único passe O(N+E) após o BFS terminar. Nunca acessar `m_nodes[id].label` dentro do loop quente.
 
 ### Editor HTML
 
@@ -55,6 +56,12 @@ g.addEdge("A", "B", 1.0);      // aresta direcionada A→B
 g.blockNode("B");               // bloqueia em runtime
 g.clearBlocked();               // desbloqueia todos
 auto r = g.findPath("A", "C"); // Dijkstra → PathResult{found, path, totalCost, steps}
+
+auto f = g.floodFill("A");    // BFS flood → FloodResult
+f.reachable       // QStringList — nós alcançados pelo fluxo
+f.blockedReached  // QStringList — válvulas que o fluxo atingiu (mas não cruzou)
+f.unreachable     // QStringList — nós que o fluxo não alcançou
+f.flowEdges       // QList<FlowEdge{from,to,cost}> — arestas com fluxo
 ```
 
 ## O que NÃO fazer
@@ -62,3 +69,4 @@ auto r = g.findPath("A", "C"); // Dijkstra → PathResult{found, path, totalCost
 - Não usar `QString` como chave em operações internas do grafo — o objetivo é manter strings fora dos hot paths.
 - Não adicionar limite de tamanho nos labels de nós (foi removido intencionalmente).
 - Não usar `append({})` em `QVector<QVector<T>>` no Qt 6 — usar `emplace_back()`.
+- Não acessar `m_nodes[id].label` dentro de loops BFS/Dijkstra — strings só na fronteira pública (entrada via `resolve()`, saída no passe final).
