@@ -2,7 +2,7 @@
 
 ## O que é este projeto
 
-Dois componentes que se comunicam via JSON:
+Dois componentes que se comunicam via JSON ou XML:
 
 1. **`index.html`** — editor visual de grafos (HTML5 + Canvas, sem dependências)
 2. **`lib/` + `app/`** — biblioteca C++ estática (Qt 6) com Dijkstra e BFS flood-fill
@@ -32,6 +32,7 @@ GraphEngine/
 - **`std::vector<double>` para `dist[]`**: array contíguo, favorece cache no loop crítico.
 - `QVector` é alias de `QList` no Qt 6 — usar `emplace_back()` em vez de `append({})` para evitar ambiguidade de overload.
 - **`floodFill` — strings apenas na fronteira**: o loop BFS opera 100% em `NodeId` (int) e `bool[]`. A conversão NodeId → label acontece num único passe O(N+E) após o BFS terminar. Nunca acessar `m_nodes[id].label` dentro do loop quente.
+- **XML — `QXmlStreamReader`/`QXmlStreamWriter`** fazem parte do `Qt Core` — não adicionar `QT += xml` ao `.pro` (isso carregaria o módulo DOM legado, desnecessário). O export gera `x="0" y="0"` pois a lib não armazena coordenadas de layout.
 
 ### Editor HTML
 
@@ -39,6 +40,7 @@ GraphEngine/
 - **Auto-save** chama `localStorage.setItem` a cada mutação — não tem debounce intencional (grafo pequeno).
 - **Popup de aresta**: ao abrir (`openEdgePopup`), usar `e.stopPropagation()` no `mousedown` do canvas para evitar que o listener `document.mousedown` feche o popup imediatamente.
 - **Labels de nó** não têm limite de tamanho.
+- **importGraphXml**: usa `DOMParser` nativo; nós com `x=0` ou `y=0` (vindos da lib, que não tem layout) são auto-distribuídos em linha para não empilhar no canvas.
 
 ## Como buildar a lib
 
@@ -62,6 +64,11 @@ f.reachable       // QStringList — nós alcançados pelo fluxo
 f.blockedReached  // QStringList — válvulas que o fluxo atingiu (mas não cruzou)
 f.unreachable     // QStringList — nós que o fluxo não alcançou
 f.flowEdges       // QList<FlowEdge{from,to,cost}> — arestas com fluxo
+
+g.saveToXmlFile("grafo.xml");   // exporta para XML
+g.loadFromXmlFile("grafo.xml"); // importa de arquivo XML
+QByteArray xml = g.toXml();     // serializa para QByteArray
+g.loadFromXml(xml);             // carrega de QByteArray
 ```
 
 ## O que NÃO fazer
@@ -70,3 +77,4 @@ f.flowEdges       // QList<FlowEdge{from,to,cost}> — arestas com fluxo
 - Não adicionar limite de tamanho nos labels de nós (foi removido intencionalmente).
 - Não usar `append({})` em `QVector<QVector<T>>` no Qt 6 — usar `emplace_back()`.
 - Não acessar `m_nodes[id].label` dentro de loops BFS/Dijkstra — strings só na fronteira pública (entrada via `resolve()`, saída no passe final).
+- Não adicionar `QT += xml` ao `lib.pro` — `QXmlStreamReader`/`QXmlStreamWriter` já estão no `Qt Core`.

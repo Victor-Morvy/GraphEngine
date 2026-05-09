@@ -1,8 +1,8 @@
 # GraphEngine
 
-Editor visual de grafos direcionados com pesos, exportação JSON e biblioteca C++ com Dijkstra e BFS flood-fill.
+Editor visual de grafos direcionados com pesos, exportação JSON/XML e biblioteca C++ com Dijkstra e BFS flood-fill.
 
-O projeto tem dois componentes independentes que se comunicam via JSON:
+O projeto tem dois componentes independentes que se comunicam via JSON ou XML:
 
 | Componente | Tecnologia | Função |
 |---|---|---|
@@ -75,6 +75,8 @@ Simula líquido escoando a partir de um **nó emissor** pelo grafo direcionado:
 - **Auto-save** em `localStorage` a cada ação — carrega automaticamente ao reabrir
 - **Exportar** → baixa `grafo.json`
 - **Carregar** → importa um `grafo.json` existente
+- **Exportar XML** → baixa `grafo.xml` (mesmo esquema do JSON, formato XML)
+- **Carregar XML** → importa um `grafo.xml`; nós com `x=0/y=0` são auto-distribuídos em linha
 
 ---
 
@@ -137,6 +139,12 @@ f.blockedReached  // QStringList — válvulas que o fluxo atingiu (não cruzou)
 f.unreachable     // QStringList — nós que o fluxo não alcançou
 f.flowEdges       // QList<FlowEdge{from,to,cost}> — arestas com fluxo
 f.toString()      // QString formatada para exibição
+
+// ── XML — import / export ───────────────────────────────────────────────────
+g.saveToXmlFile("grafo.xml");     // salva em XML
+g.loadFromXmlFile("grafo.xml");   // carrega de arquivo XML
+g.loadFromXml(xmlBytes);          // carrega de QByteArray
+QByteArray xml = g.toXml();       // serializa para QByteArray
 ```
 
 ### Estrutura interna
@@ -169,9 +177,9 @@ GraphEngine/
     └── main.cpp        # demo: carrega grafo.json, testa Dijkstra e floodFill
 ```
 
-## Formato JSON
+## Formatos de arquivo
 
-O JSON exportado pelo editor é o mesmo consumido pela biblioteca:
+### JSON
 
 ```json
 {
@@ -184,3 +192,21 @@ O JSON exportado pelo editor é o mesmo consumido pela biblioteca:
   ]
 }
 ```
+
+### XML
+
+Mesmo esquema do JSON — editor e biblioteca consomem o mesmo arquivo:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<graphengine version="1">
+  <nodes>
+    <node id="n1" x="100" y="200" label="Entrada"/>
+  </nodes>
+  <edges>
+    <edge id="e1" from="n1" to="n2" cost="1"/>
+  </edges>
+</graphengine>
+```
+
+> **Nota:** quando exportado pela biblioteca C++, `x` e `y` são `0` (a lib não armazena layout). O editor auto-distribui esses nós em linha ao importar.
