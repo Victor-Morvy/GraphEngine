@@ -153,13 +153,7 @@ canvas { display:block; }
         <label>Destino</label>
         <select id="pf-to"><option value="">-- selecione --</option></select>
       </div>
-      <div class="field">
-        <label>Algoritmo</label>
-        <select id="pf-algo">
-          <option value="dijkstra">Dijkstra (custo mínimo)</option>
-          <option value="bfs">BFS (menos saltos)</option>
-        </select>
-      </div>
+
       <button class="btn-full" onclick="findPath()">🔍 Buscar Caminho</button>
       <div class="result-box" id="pf-result" style="margin-top:8px;">
         <span class="info">Nenhuma busca realizada.</span>
@@ -703,28 +697,6 @@ function dijkstra(startId, endId, blocked) {
   return reconstruct(startId, endId, dist, prev, prevEdge);
 }
 
-function bfs(startId, endId, blocked) {
-  if (blocked.has(startId) || blocked.has(endId)) return null;
-  const visited = new Set([startId]), prev = {}, prevEdge = {}, queue = [startId];
-  while (queue.length) {
-    const u = queue.shift();
-    if (u === endId) break;
-    for (const e of G.edges) {
-      if (e.from !== u || blocked.has(e.to) || visited.has(e.to)) continue;
-      visited.add(e.to); prev[e.to] = u; prevEdge[e.to] = e.id;
-      queue.push(e.to);
-    }
-  }
-  if (!visited.has(endId)) return null;
-  const dist = {};
-  G.nodes.forEach(n => { if (!blocked.has(n.id)) dist[n.id] = Infinity; });
-  dist[startId] = 0;
-  const fake = {};
-  // compute costs for BFS path
-  const fp = {}, fe = {};
-  Object.assign(fp, prev); Object.assign(fe, prevEdge);
-  return reconstruct(startId, endId, dist, fp, fe, true);
-}
 
 function reconstruct(startId, endId, dist, prev, prevEdge, calcCost=false) {
   const nodes = [], edges = [];
@@ -743,14 +715,13 @@ function reconstruct(startId, endId, dist, prev, prevEdge, calcCost=false) {
 function findPath() {
   const fromId = document.getElementById('pf-from').value;
   const toId   = document.getElementById('pf-to').value;
-  const algo   = document.getElementById('pf-algo').value;
   const res    = document.getElementById('pf-result');
 
   if (!fromId || !toId) { res.innerHTML = '<span class="info">Selecione origem e destino.</span>'; return; }
   if (fromId === toId)  { res.innerHTML = '<span class="info">Origem e destino são iguais.</span>'; return; }
 
   const blocked = blockedSet();
-  const result = algo === 'bfs' ? bfs(fromId, toId, blocked) : dijkstra(fromId, toId, blocked);
+  const result  = dijkstra(fromId, toId, blocked);
 
   if (!result) {
     pathHL = null;
@@ -766,8 +737,7 @@ function findPath() {
   res.innerHTML = `
     <span class="ok">✓ Caminho: ${labels}</span>
     <span class="info">Custo total: ${result.cost.toFixed(2)}</span>
-    <span class="info">Interações (arestas): ${result.steps}</span>
-    <span class="info">Algoritmo: ${algo === 'bfs' ? 'BFS' : 'Dijkstra'}</span>
+    <span class="info">Arestas: ${result.steps}</span>
     ${blocked.size > 0 ? `<span class="info">${blocked.size} nó(s) bloqueado(s)</span>` : ''}
   `;
   setStatus(`Caminho ${fn}→${tn}: custo ${result.cost.toFixed(2)}, ${result.steps} aresta(s).`);
