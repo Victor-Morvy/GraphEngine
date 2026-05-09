@@ -18,5 +18,10 @@ qrc_*.cpp
 Makefile*
 .qmake.stash
 
+# Archives
+*.rar
+*.zip
+*.7z
+
 # Claude Code
 .claude/

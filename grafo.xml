@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphengine version="1">
+    <nodes>
+        <node id="n0" x="0" y="0" label="Xbleed"/>
+        <node id="n1" x="0" y="0" label="B"/>
+        <node id="n2" x="0" y="0" label="C"/>
+        <node id="n3" x="0" y="0" label="APU_SOV"/>
+        <node id="n4" x="0" y="0" label="APU"/>
+        <node id="n5" x="0" y="0" label="ENGINE_2"/>
+        <node id="n6" x="0" y="0" label="ENGINE_1"/>
+        <node id="n7" x="0" y="0" label="SOV_PACK1"/>
+        <node id="n8" x="0" y="0" label="SOV_PACK2"/>
+        <node id="n9" x="0" y="0" label="PACK2"/>
+        <node id="n10" x="0" y="0" label="PACK1"/>
+        <node id="n11" x="0" y="0" label="ENG1_SOV_FEE"/>
+        <node id="n12" x="0" y="0" label="ENG2_SOV_FEE"/>
+        <node id="n13" x="0" y="0" label="N"/>
+        <node id="n14" x="0" y="0" label="O"/>
+        <node id="n15" x="0" y="0" label="ENG1_STRT_SO"/>
+        <node id="n16" x="0" y="0" label="ENG2_STRT_SO"/>
+    </nodes>
+    <edges>
+        <edge id="e0" from="n0" to="n14" cost="1"/>
+        <edge id="e1" from="n0" to="n13" cost="1"/>
+        <edge id="e2" from="n1" to="n13" cost="1"/>
+        <edge id="e3" from="n1" to="n15" cost="1"/>
+        <edge id="e4" from="n2" to="n14" cost="1"/>
+        <edge id="e5" from="n2" to="n16" cost="1"/>
+        <edge id="e6" from="n3" to="n13" cost="1"/>
+        <edge id="e7" from="n4" to="n3" cost="1"/>
+        <edge id="e8" from="n5" to="n12" cost="1"/>
+        <edge id="e9" from="n6" to="n11" cost="1"/>
+        <edge id="e10" from="n7" to="n10" cost="1"/>
+        <edge id="e11" from="n8" to="n9" cost="1"/>
+        <edge id="e12" from="n11" to="n1" cost="1"/>
+        <edge id="e13" from="n12" to="n2" cost="1"/>
+        <edge id="e14" from="n13" to="n7" cost="1"/>
+        <edge id="e15" from="n13" to="n0" cost="1"/>
+        <edge id="e16" from="n13" to="n1" cost="1"/>
+        <edge id="e17" from="n14" to="n8" cost="1"/>
+        <edge id="e18" from="n14" to="n0" cost="1"/>
+        <edge id="e19" from="n14" to="n2" cost="1"/>
+        <edge id="e20" from="n15" to="n1" cost="1"/>
+        <edge id="e21" from="n15" to="n6" cost="1"/>
+        <edge id="e22" from="n16" to="n2" cost="1"/>
+        <edge id="e23" from="n16" to="n5" cost="1"/>
+    </edges>
+</graphengine>
