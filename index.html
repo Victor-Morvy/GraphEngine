@@ -122,8 +122,11 @@ canvas { display:block; }
     <button onclick="newGraph()"  title="Limpar grafo">⊠ Novo</button>
     <button onclick="document.getElementById('fi').click()" title="Importar JSON">⤴ Carregar</button>
     <button onclick="exportGraph()" title="Exportar JSON">⤵ Exportar</button>
+    <button onclick="document.getElementById('fi-xml').click()" title="Importar XML">⤴ Carregar XML</button>
+    <button onclick="exportGraphXml()" title="Exportar XML">⤵ Exportar XML</button>
   </div>
   <input type="file" id="fi" accept=".json" style="display:none" onchange="importGraph(event)">
+  <input type="file" id="fi-xml" accept=".xml" style="display:none" onchange="importGraphXml(event)">
   <span id="mode-label">Selecionar</span>
 </div>
 
@@ -1260,6 +1263,71 @@ function importGraph(event) {
       setStatus(`Grafo importado: ${G.nodes.length} nós, ${G.edges.length} arestas.`);
     } catch(err) {
       alert('Arquivo inválido: ' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+function exportGraphXml() {
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<graphengine version="1">', '  <nodes>'];
+  for (const n of G.nodes)
+    lines.push(`    <node id="${esc(n.id)}" x="${Math.round(n.x)}" y="${Math.round(n.y)}" label="${esc(n.label)}"/>`);
+  lines.push('  </nodes>', '  <edges>');
+  for (const e of G.edges)
+    lines.push(`    <edge id="${esc(e.id)}" from="${esc(e.from)}" to="${esc(e.to)}" cost="${e.cost}"/>`);
+  lines.push('  </edges>', '</graphengine>');
+  const blob = new Blob([lines.join('\n')], { type:'application/xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'grafo.xml';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('Grafo exportado como XML.');
+}
+
+function importGraphXml(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const doc = new DOMParser().parseFromString(e.target.result, 'application/xml');
+      const parseErr = doc.querySelector('parsererror');
+      if (parseErr) throw new Error(parseErr.textContent);
+      G.nodes = [];
+      G.edges = [];
+      for (const el of doc.querySelectorAll('nodes > node')) {
+        const x = parseFloat(el.getAttribute('x'));
+        const y = parseFloat(el.getAttribute('y'));
+        G.nodes.push({
+          id:      el.getAttribute('id'),
+          label:   el.getAttribute('label') || el.getAttribute('id'),
+          x:       isNaN(x) || x === 0 ? 200 + G.nodes.length * 80 : x,
+          y:       isNaN(y) || y === 0 ? 300 : y,
+          blocked: false,
+        });
+      }
+      for (const el of doc.querySelectorAll('edges > edge')) {
+        G.edges.push({
+          id:   el.getAttribute('id'),
+          from: el.getAttribute('from'),
+          to:   el.getAttribute('to'),
+          cost: parseFloat(el.getAttribute('cost')) || 1,
+        });
+      }
+      G.nextNode = Math.max(1, ...G.nodes.map(n => parseInt(n.id.slice(1)||0)+1));
+      G.nextEdge = Math.max(1, ...G.edges.map(e => parseInt(e.id.slice(1)||0)+1));
+      G.labelIdx = G.nodes.length;
+      selected = null; edgeSrc = null; pathHL = null; flowHL = null;
+      panX = 0; panY = 0;
+      refreshSelects(); updatePropsPanel(); updateGraphInfo(); updatePlayPanel(); autoSave();
+      setStatus(`XML importado: ${G.nodes.length} nós, ${G.edges.length} arestas.`);
+    } catch(err) {
+      alert('Arquivo XML inválido: ' + err.message);
     }
     event.target.value = '';
   };

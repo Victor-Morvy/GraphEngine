@@ -92,11 +92,16 @@ public:
     void clearBlocked();
 
     // -------------------------------------------------------------------------
-    // JSON loading (GraphEngine HTML editor format)
+    // JSON / XML loading and export (GraphEngine HTML editor format)
     // -------------------------------------------------------------------------
 
-    bool loadFromFile(const QString &filePath);
-    bool loadFromJson(const QByteArray &json);
+    bool loadFromFile   (const QString &filePath);
+    bool loadFromJson   (const QByteArray &json);
+
+    bool loadFromXmlFile(const QString &filePath);
+    bool loadFromXml    (const QByteArray &xml);
+    QByteArray toXml    () const;
+    bool saveToXmlFile  (const QString &filePath) const;
 
     // -------------------------------------------------------------------------
     // Pathfinding - Dijkstra

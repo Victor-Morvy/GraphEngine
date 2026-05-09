@@ -4,6 +4,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QXmlStreamReader>
+#include <QXmlStreamWriter>
 #include <QDebug>
 
 #include <limits>
@@ -135,6 +137,140 @@ bool GraphEngine::loadFromJson(const QByteArray &json)
 
     qInfo() << "GraphEngine: loaded" << nodeCount() << "nodes and"
             << edgeCount() << "edges.";
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// XML import / export
+//
+// Format mirrors the JSON format so the same grafo.xml can be loaded by both
+// the HTML editor and the C++ lib.
+//
+// <graphengine version="1">
+//   <nodes>
+//     <node id="n0" x="0" y="0" label="A"/>
+//   </nodes>
+//   <edges>
+//     <edge id="e0" from="n0" to="n1" cost="1"/>
+//   </edges>
+// </graphengine>
+//
+// Node IDs follow the internal NodeId (0-based) so the id/from/to references
+// are stable within a single file. Strings appear only at the boundary pass.
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool GraphEngine::loadFromXmlFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "GraphEngine::loadFromXmlFile: cannot open" << filePath;
+        return false;
+    }
+    return loadFromXml(file.readAll());
+}
+
+bool GraphEngine::loadFromXml(const QByteArray &xml)
+{
+    QXmlStreamReader reader(xml);
+    QHash<QString, QString> idToLabel;  // xmlId -> label (boundary only)
+
+    bool inNodes = false, inEdges = false;
+
+    while (!reader.atEnd() && !reader.hasError()) {
+        reader.readNext();
+
+        if (reader.isEndElement()) {
+            const auto n = reader.name();
+            if      (n == QLatin1String("nodes")) inNodes = false;
+            else if (n == QLatin1String("edges")) inEdges = false;
+            continue;
+        }
+
+        if (!reader.isStartElement()) continue;
+
+        const auto name = reader.name();
+        if      (name == QLatin1String("nodes")) { inNodes = true;  inEdges = false; }
+        else if (name == QLatin1String("edges")) { inEdges = true;  inNodes = false; }
+        else if (name == QLatin1String("node") && inNodes) {
+            const auto   attrs = reader.attributes();
+            const QString id   = attrs.value(QLatin1String("id")).toString();
+            const QString lbl  = attrs.value(QLatin1String("label")).toString();
+            if (!id.isEmpty() && !lbl.isEmpty()) {
+                idToLabel.insert(id, lbl);
+                addNode(lbl);
+            }
+        }
+        else if (name == QLatin1String("edge") && inEdges) {
+            const auto    attrs    = reader.attributes();
+            const QString fromId   = attrs.value(QLatin1String("from")).toString();
+            const QString toId     = attrs.value(QLatin1String("to")).toString();
+            const QString costStr  = attrs.value(QLatin1String("cost")).toString();
+            const double  cost     = costStr.isEmpty() ? 1.0 : costStr.toDouble();
+            const QString fromLbl  = idToLabel.value(fromId);
+            const QString toLbl    = idToLabel.value(toId);
+            if (!fromLbl.isEmpty() && !toLbl.isEmpty())
+                addEdge(fromLbl, toLbl, cost);
+        }
+    }
+
+    if (reader.hasError()) {
+        qWarning() << "GraphEngine::loadFromXml:" << reader.errorString();
+        return false;
+    }
+
+    qInfo() << "GraphEngine: loaded" << nodeCount() << "nodes and"
+            << edgeCount() << "edges from XML.";
+    return nodeCount() > 0;
+}
+
+QByteArray GraphEngine::toXml() const
+{
+    QByteArray out;
+    QXmlStreamWriter xml(&out);
+    xml.setAutoFormatting(true);
+    xml.writeStartDocument();
+
+    xml.writeStartElement(QStringLiteral("graphengine"));
+    xml.writeAttribute(QStringLiteral("version"), QStringLiteral("1"));
+
+    // ── Nodes — NodeId is the stable id inside this file ─────────────────────
+    xml.writeStartElement(QStringLiteral("nodes"));
+    for (NodeId id = 0; id < static_cast<NodeId>(m_nodes.size()); ++id) {
+        xml.writeEmptyElement(QStringLiteral("node"));
+        xml.writeAttribute(QStringLiteral("id"),    QString("n%1").arg(id));
+        xml.writeAttribute(QStringLiteral("x"),     QStringLiteral("0"));
+        xml.writeAttribute(QStringLiteral("y"),     QStringLiteral("0"));
+        xml.writeAttribute(QStringLiteral("label"), m_nodes[id].label);
+    }
+    xml.writeEndElement(); // nodes
+
+    // ── Edges — iterate adjacency list ────────────────────────────────────────
+    xml.writeStartElement(QStringLiteral("edges"));
+    int eIdx = 0;
+    for (NodeId u = 0; u < static_cast<NodeId>(m_nodes.size()); ++u) {
+        for (const Link &lnk : m_adj[u]) {
+            xml.writeEmptyElement(QStringLiteral("edge"));
+            xml.writeAttribute(QStringLiteral("id"),   QString("e%1").arg(eIdx++));
+            xml.writeAttribute(QStringLiteral("from"), QString("n%1").arg(u));
+            xml.writeAttribute(QStringLiteral("to"),   QString("n%1").arg(lnk.to));
+            xml.writeAttribute(QStringLiteral("cost"), QString::number(lnk.cost));
+        }
+    }
+    xml.writeEndElement(); // edges
+
+    xml.writeEndElement(); // graphengine
+    xml.writeEndDocument();
+    return out;
+}
+
+bool GraphEngine::saveToXmlFile(const QString &filePath) const
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "GraphEngine::saveToXmlFile: cannot open" << filePath;
+        return false;
+    }
+    file.write(toXml());
     return true;
 }
 

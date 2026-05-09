@@ -56,6 +56,7 @@ int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
 
+    // ── Carregar JSON ─────────────────────────────────────────────────────────
     GraphEngine g;
     const QString jsonPath = (argc > 1)
         ? QString::fromLocal8Bit(argv[1])
@@ -72,7 +73,7 @@ int main(int argc, char *argv[])
     out << "  Arestas: " << g.edgeCount() << "\n";
     out << "  Nomes  : " << g.nodeNames().join(", ") << "\n";
 
-    // ── Dijkstra: ENGINE_2 → PACK2 ───────────────────────────────────────────
+    // ── Dijkstra ──────────────────────────────────────────────────────────────
     section("Dijkstra: ENGINE_2 -> PACK2  (sem bloqueios)");
     out << "  " << g.findPath("ENGINE_2", "PACK2").toString() << "\n";
 
@@ -81,31 +82,46 @@ int main(int argc, char *argv[])
     out << "  " << g.findPath("ENGINE_2", "PACK2").toString() << "\n";
     g.clearBlocked();
 
-    // ── FloodFill 1: ENGINE_1 sem bloqueios ──────────────────────────────────
-    section("FloodFill 1 — emissor: ENGINE_1  (sem bloqueios)");
+    // ── FloodFill ─────────────────────────────────────────────────────────────
+    section("FloodFill — emissor: ENGINE_1  (sem bloqueios)");
     printFlood(g.floodFill("ENGINE_1"));
 
-    // ── FloodFill 2: ENGINE_1 com SOV_PACK1 bloqueado ────────────────────────
-    section("FloodFill 2 — emissor: ENGINE_1  (SOV_PACK1 = valvula fechada)");
+    section("FloodFill — emissor: ENGINE_1  (SOV_PACK1 = valvula fechada)");
     g.blockNode("SOV_PACK1");
     printFlood(g.floodFill("ENGINE_1"));
     g.clearBlocked();
 
-    // ── FloodFill 3: Xbleed com si proprio bloqueado ─────────────────────────
-    section("FloodFill 3 — emissor: Xbleed  (Xbleed bloqueado = sem fluxo)");
-    g.blockNode("Xbleed");
-    printFlood(g.floodFill("Xbleed"));
-    g.clearBlocked();
-
-    // ── FloodFill 4: APU (propaga por toda a rede) ────────────────────────────
-    section("FloodFill 4 — emissor: APU  (propaga pela rede inteira)");
+    section("FloodFill — emissor: APU  (propaga pela rede inteira)");
     printFlood(g.floodFill("APU"));
 
-    // ── FloodFill 5: APU com Xbleed bloqueado (divide a rede) ────────────────
-    section("FloodFill 5 — emissor: APU  (Xbleed bloqueado)");
-    g.blockNode("Xbleed");
-    printFlood(g.floodFill("APU"));
-    g.clearBlocked();
+    // ── XML: export → import → verificar roundtrip ───────────────────────────
+    section("XML Export: salvar grafo como XML");
+    const QString xmlPath = QStringLiteral("C:/Users/Victor/Documents/Repositories/GraphEngine/grafo.xml");
+    if (g.saveToXmlFile(xmlPath))
+        out << "  Salvo em: " << xmlPath << "\n";
+    else
+        out << "  [ERRO] nao foi possivel salvar XML.\n";
+
+    section("XML Import: carregar grafo.xml em novo engine");
+    GraphEngine gXml;
+    if (gXml.loadFromXmlFile(xmlPath)) {
+        out << "  Nos    : " << gXml.nodeCount() << "\n";
+        out << "  Arestas: " << gXml.edgeCount() << "\n";
+        out << "  Nomes  : " << gXml.nodeNames().join(", ") << "\n";
+
+        const bool nosOk    = gXml.nodeCount() == g.nodeCount();
+        const bool arestasOk = gXml.edgeCount() == g.edgeCount();
+        out << "  Roundtrip nos    : " << (nosOk     ? "OK" : "FALHOU") << "\n";
+        out << "  Roundtrip arestas: " << (arestasOk ? "OK" : "FALHOU") << "\n";
+    } else {
+        out << "  [ERRO] nao foi possivel carregar XML.\n";
+    }
+
+    section("FloodFill no grafo carregado do XML — emissor: ENGINE_1");
+    printFlood(gXml.floodFill("ENGINE_1"));
+
+    section("Dijkstra no grafo carregado do XML — ENGINE_2 -> PACK2");
+    out << "  " << gXml.findPath("ENGINE_2", "PACK2").toString() << "\n";
 
     out << "\n";
     return 0;
